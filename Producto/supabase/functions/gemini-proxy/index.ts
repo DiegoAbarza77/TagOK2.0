@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
-  let body: { prompt?: string };
+  let body: { prompt?: string; imageBase64?: string; imageMimeType?: string };
   try {
     body = await req.json();
   } catch {
@@ -68,13 +68,22 @@ Deno.serve(async (req) => {
     return new Response("prompt es requerido", { status: 400, headers: corsHeaders });
   }
 
+  // Si viene una imagen (foto de boleta), se manda como inline_data junto
+  // al prompt de texto -- Gemini es multimodal y puede "leer" la imagen.
+  const parts: Record<string, unknown>[] = [{ text: body.prompt }];
+  if (body.imageBase64 && body.imageMimeType) {
+    parts.push({
+      inline_data: { mime_type: body.imageMimeType, data: body.imageBase64 },
+    });
+  }
+
   const geminiResponse = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${geminiApiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: body.prompt }] }],
+        contents: [{ parts }],
         generationConfig: {
           responseMimeType: "application/json",
           // gemini-3.6-flash activa "thinking" por defecto, lo que hace

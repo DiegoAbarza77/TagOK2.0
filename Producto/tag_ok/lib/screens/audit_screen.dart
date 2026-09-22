@@ -503,10 +503,18 @@ class _AuditScreenState extends State<AuditScreen> {
   /// Llama a la Edge Function "gemini-proxy": Gemini corre del lado del
   /// servidor, así GEMINI_API_KEY nunca viaja al navegador ni queda
   /// expuesta en el build web.
-  Future<String> _callGeminiProxy(String prompt) async {
+  Future<String> _callGeminiProxy(
+    String prompt, {
+    Uint8List? imageBytes,
+    String? imageMimeType,
+  }) async {
     final response = await Supabase.instance.client.functions.invoke(
       'gemini-proxy',
-      body: {'prompt': prompt},
+      body: {
+        'prompt': prompt,
+        if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
+        if (imageMimeType != null) 'imageMimeType': imageMimeType,
+      },
     );
     if (response.data is! Map) {
       throw Exception('Respuesta inesperada del servicio de IA.');
@@ -564,6 +572,57 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
     } catch (e) {
       debugPrint('Gemini Extraction Error: \$e\\nResponse: \$responseText');
       throw Exception('Gemini no pudo interpretar correctamente el formato de la boleta.');
+    }
+  }
+
+  /// Igual que _extractDataWithGemini, pero para una foto de la boleta en
+  /// vez de texto -- Gemini puede "leer" la imagen directamente.
+  Future<Map<String, dynamic>> _extractDataFromImageWithGemini(
+    Uint8List imageBytes,
+    String mimeType,
+    String fileName,
+  ) async {
+    final prompt = '''
+Eres un asistente experto en analizar fotografías de boletas de peaje y autopistas de Chile.
+A continuación te proporciono una imagen de un archivo llamado "\$fileName".
+Tu tarea es mirar la imagen y encontrar y extraer:
+1. La concesionaria de la autopista (ej: Autopista Central, Costanera Norte, Vespucio Sur, Vespucio Norte, etc.). Si no estás seguro, usa "Autopista Desconocida".
+2. La patente principal del vehículo cobrado (por lo general 6 caracteres alfanuméricos).
+3. Una lista de todos los tránsitos/cobros individuales visibles en la imagen (fecha, hora, pórtico y costo).
+   - Formato de fecha esperado: "YYYY-MM-DD"
+   - Formato de hora esperado: "HH:MM:SS" (si falta, usa "00:00:00")
+   - Costo: número numérico entero o decimal (sin símbolos de peso).
+
+Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estricta:
+{
+  "concessionaire": "Nombre de la Autopista",
+  "patent": "ABCD12",
+  "crossings": [
+    {
+      "date": "2026-03-15",
+      "time": "14:30:00",
+      "portico": "Pórtico Nombre",
+      "cost": 1500.0
+    }
+  ]
+}
+''';
+
+    final responseText = await _callGeminiProxy(
+      prompt,
+      imageBytes: imageBytes,
+      imageMimeType: mimeType,
+    );
+
+    try {
+      final parsed = jsonDecode(responseText);
+      if (parsed['crossings'] == null || (parsed['crossings'] as List).isEmpty) {
+        throw Exception('La IA no encontró cruces legibles en la foto.');
+      }
+      return parsed;
+    } catch (e) {
+      debugPrint('Gemini Image Extraction Error: \$e\\nResponse: \$responseText');
+      throw Exception('Gemini no pudo leer correctamente la foto de la boleta.');
     }
   }
 
@@ -745,7 +804,7 @@ Instrucciones para redactar el "aiReport":
     try {
       final FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['pdf', 'csv', 'xlsx'],
+        allowedExtensions: ['pdf', 'csv', 'xlsx', 'jpg', 'jpeg', 'png'],
         withData: true,
       );
 
@@ -765,7 +824,31 @@ Instrucciones para redactar el "aiReport":
       List<Map<String, dynamic>> extractedCrossings = [];
 
       final fileNameLower = file.name.toLowerCase();
+      final isImage = fileNameLower.endsWith('.jpg') ||
+          fileNameLower.endsWith('.jpeg') ||
+          fileNameLower.endsWith('.png');
 
+      if (isImage) {
+        // Una foto no tiene texto que extraer localmente -- siempre va
+        // directo a Gemini, que sí puede "leer" la imagen.
+        if (!_useAI) {
+          throw Exception('Las fotos solo se pueden procesar con IA. Activa "Auditar con IA" para continuar.');
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Analizando la foto con Inteligencia Artificial...'),
+              backgroundColor: Color(0xFF8B5CF6),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        final mimeType = fileNameLower.endsWith('.png') ? 'image/png' : 'image/jpeg';
+        final aiExtracted = await _extractDataFromImageWithGemini(fileBytes, mimeType, file.name);
+        extractedCrossings = (aiExtracted['crossings'] as List).map((e) => Map<String, dynamic>.from(e)).toList();
+        patent = aiExtracted['patent'] ?? 'Desconocida';
+        concessionaire = aiExtracted['concessionaire'] ?? 'Autopista Genérica';
+      } else {
       // 1. EXTRACCIÓN Y LECTURA
       try {
         if (fileNameLower.endsWith('.csv')) {
@@ -1048,6 +1131,7 @@ Instrucciones para redactar el "aiReport":
           // Re-throw the original error if AI is disabled
           throw Exception('Error local: \$localParsingError. Activa "Auditar con IA" para soportar formatos desconocidos.');
         }
+      }
       }
 
       // 1.5. AUDITAR DE MANERA REAL CON HISTORIAL GPS EXISTENTE
