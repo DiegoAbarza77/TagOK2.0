@@ -375,7 +375,7 @@ class _AdminHintCard extends StatelessWidget {
           ),
           SizedBox(height: 8),
           Text(
-            'Este panel comparte el mismo Firestore que la app final. Usa roles para restringir edición y publicación.',
+            'Este panel comparte la misma base de datos Supabase que la app final. Usa roles para restringir edición y publicación.',
             style: TextStyle(
               color: Color(0xFFCBD5E1),
               fontSize: 12,
@@ -1545,7 +1545,7 @@ class _UsersPageState extends State<UsersPage> {
     return _AdminPageScaffold(
       title: 'Usuarios',
       subtitle:
-          'Gestión de cuentas. (Por seguridad de Firebase, las contraseñas están encriptadas. Usa las acciones para resetearlas).',
+          'Gestión de cuentas. (Por seguridad, las contraseñas están encriptadas. Usa las acciones para resetearlas).',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -3382,7 +3382,7 @@ class _ReportsPageState extends State<ReportsPage> {
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
                   Text(
-                    'Cargando y consolidando métricas desde Firestore...',
+                    'Cargando y consolidando métricas...',
                     style: TextStyle(color: Color(0xFF64748B)),
                   ),
                 ],
@@ -4079,7 +4079,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
       await widget.service.logAction(
         action: 'DELETE_ADMIN',
         target: email,
-        details: 'Acceso revocado (eliminado de Firestore)',
+        details: 'Acceso revocado (cuenta eliminada)',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
