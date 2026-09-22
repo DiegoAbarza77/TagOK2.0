@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import '../data/services/simulated_toll_service.dart';
 import '../data/services/geocoding_service.dart';
 import '../data/services/history_service.dart';

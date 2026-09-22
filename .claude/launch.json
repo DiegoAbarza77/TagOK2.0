@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tag_ok_admin",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8765"],
+      "port": 8765,
+      "cwd": "Producto/admin"
+    },
+    {
+      "name": "tag_ok_app",
+      "runtimeExecutable": "flutter",
+      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8766"],
+      "port": 8766,
+      "cwd": "Producto/tag_ok"
+    }
+  ]
+}

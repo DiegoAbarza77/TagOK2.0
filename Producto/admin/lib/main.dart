@@ -1,32 +1,27 @@
-import 'dart:convert';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'file_downloader.dart';
 
 import 'login_screen.dart';
-import 'admin_firestore_service.dart';
-import 'firebase_options.dart';
+import 'admin_supabase_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Cargar variables de entorno encriptadas en memoria
+  // Cargar variables de entorno desde el archivo .env local (no versionado)
   try {
-    const b64Env =
-        "V0VCX0FQSV9LRVk9QUl6YVN5Qm1YVnZZejNsalpXRjROQ2tfMndGQ01Cc0VmTEJkZzF3DQpXRUJfQVBQX0lEPTE6MTU5MTUwNjQzNjM6d2ViOmFmZmVlNDg4NDU0YTYyZDVmYmRlNmUNCkFORFJPSURfQVBJX0tFWT1BSXphU3lEd3N5cXJpMDkyUGFhbFFzRjNDMnpueVRtTk9DaDVSSjANCkFORFJPSURfQVBQX0lEPTE6MTU5MTUwNjQzNjM6YW5kcm9pZDoyNmQ1NThmZTgyZjU5MTZjZmJkZTZlDQpJT1NfQVBJX0tFWT1BSXphU3lEcS02cGRBY0g4Z0FrT0VZT3A0SHpjWDVBQzF5cUl6eWsNCklPU19BUFBfSUQ9MToxNTkxNTA2NDM2Mzppb3M6YTg2ZDRjNGE5NTY0ZDgxM2ZiZGU2ZQ0KTUVTU0FHSU5HX1NFTkRFUl9JRD0xNTkxNTA2NDM2Mw0KUFJPSkVDVF9JRD10YWctb2sNClNUT1JBR0VfQlVDS0VUPXRhZy1vay5maXJlYmFzZXN0b3JhZ2UuYXBwDQpJT1NfQlVORExFX0lEPWNvbS5leGFtcGxlLnRhZ09rDQpNQVBCT1hfQUNDRVNTX1RPS0VOPXBrLmV5SjFJam9pYW1WemRYTmhjbUZ1WjNWcGVqSTVJaXdpWVNJNkltTnRiM0p3YlRkcU5UQTNZWGN5YzI5bGRXZDBiVGhyY1c0aWZRLkR6LTdHUFEwRlI0aGRKRjJYWHI4N0ENCkdFTUlOSV9BUElfS0VZPUFRLkFiOFJONkpDdlUxLTEyNWc3TGxJcHVGVzFDUncxdWRWbnhqRW81bEVSUmMxbDZKSnB3DQo=";
-    // Decodificar Base64
-    final envText = utf8.decode(base64Decode(b64Env));
-    dotenv.testLoad(fileInput: envText);
-  } catch (_) {
-    debugPrint('TAG_OK_ADMIN: no se pudo cargar variables en memoria');
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint('TAG_OK_ADMIN: no se pudo cargar .env: $e');
   }
 
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    publishableKey: dotenv.env['SUPABASE_ANON_KEY']!,
+  );
 
   runApp(const TagOkAdminApp());
 }
@@ -67,7 +62,7 @@ class TagOkAdminApp extends StatelessWidget {
 class SidebarItem {
   final String title;
   final IconData icon;
-  final Widget Function(AdminFirestoreService service) pageBuilder;
+  final Widget Function(AdminSupabaseService service) pageBuilder;
 
   const SidebarItem({
     required this.title,
@@ -85,7 +80,7 @@ class AdminShell extends StatefulWidget {
 }
 
 class _AdminShellState extends State<AdminShell> {
-  final AdminFirestoreService _service = AdminFirestoreService();
+  final AdminSupabaseService _service = AdminSupabaseService();
   int _selectedIndex = 0;
   late final List<SidebarItem> _sidebarItems;
 
@@ -250,7 +245,7 @@ class _AdminShellState extends State<AdminShell> {
                       leading: const Icon(Icons.logout),
                       title: const Text('Cerrar sesión'),
                       onTap: () async {
-                        await FirebaseAuth.instance.signOut();
+                        await Supabase.instance.client.auth.signOut();
                       },
                     ),
                   ),
@@ -400,7 +395,7 @@ class _UserProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final String email =
-        FirebaseAuth.instance.currentUser?.email ?? 'admin@tagok.cl';
+        Supabase.instance.client.auth.currentUser?.email ?? 'admin@tagok.cl';
     final String r = role.toLowerCase().trim();
     final bool isSuper =
         r == 'super_admin' ||
@@ -473,7 +468,7 @@ class _UserProfileCard extends StatelessWidget {
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -485,15 +480,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   String _formatFecha(dynamic dateVal) {
     if (dateVal == null) return '-';
-    if (dateVal is Timestamp) {
-      final date = dateVal.toDate();
-      final y = date.year;
-      final m = date.month.toString().padLeft(2, '0');
-      final d = date.day.toString().padLeft(2, '0');
-      final h = date.hour.toString().padLeft(2, '0');
-      final min = date.minute.toString().padLeft(2, '0');
-      return '$y-$m-$d $h:$min';
-    }
     if (dateVal is String) {
       return dateVal.length >= 16 ? dateVal.substring(0, 16) : dateVal;
     }
@@ -502,9 +488,6 @@ class _DashboardPageState extends State<DashboardPage> {
 
   DateTime? parseTripDate(dynamic dateVal) {
     if (dateVal == null) return null;
-    if (dateVal is Timestamp) {
-      return dateVal.toDate();
-    }
     if (dateVal is String) {
       return DateTime.tryParse(dateVal);
     }
@@ -578,10 +561,10 @@ class _DashboardPageState extends State<DashboardPage> {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+    return StreamBuilder<List<Map<String, dynamic>>>(
       stream: widget.service.streamUserTrips(),
       builder: (context, tripsSnapshot) {
-        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        return StreamBuilder<List<Map<String, dynamic>>>(
           stream: widget.service.streamUsers(),
           builder: (context, usersSnapshot) {
             if (tripsSnapshot.hasError) {
@@ -603,7 +586,7 @@ class _DashboardPageState extends State<DashboardPage> {
             }
 
             final trips = tripsSnapshot.data ?? [];
-            final usersDocs = usersSnapshot.data?.docs ?? [];
+            final usersDocs = usersSnapshot.data ?? [];
 
             double totalTollCost = 0.0;
             final Map<String, double> costByHighway = {
@@ -615,9 +598,8 @@ class _DashboardPageState extends State<DashboardPage> {
               'Conexión / Otras': 0.0,
             };
 
-            for (var doc in trips) {
-              final data = doc.data();
-              final double tripCost = double.tryParse(data['totalCost']?.toString() ?? '0') ?? 0.0;
+            for (var data in trips) {
+              final double tripCost = double.tryParse(data['total_cost']?.toString() ?? '0') ?? 0.0;
               totalTollCost += tripCost;
 
               final List<dynamic> tollsList = data['tolls'] as List<dynamic>? ?? [];
@@ -642,8 +624,8 @@ class _DashboardPageState extends State<DashboardPage> {
               final key = "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}";
               dailyCounts[key] = 0;
             }
-            for (var doc in trips) {
-              final date = parseTripDate(doc.data()['date']);
+            for (var data in trips) {
+              final date = parseTripDate(data['date']);
               if (date != null) {
                 final key = "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
                 if (dailyCounts.containsKey(key)) {
@@ -652,7 +634,7 @@ class _DashboardPageState extends State<DashboardPage> {
               }
             }
 
-            final String adminEmail = FirebaseAuth.instance.currentUser?.email ?? 'admin@tagok.cl';
+            final String adminEmail = Supabase.instance.client.auth.currentUser?.email ?? 'admin@tagok.cl';
 
             Widget contentWidget;
             if (_activeTabIndex == 1) {
@@ -721,11 +703,10 @@ class _DashboardPageState extends State<DashboardPage> {
                               child: ListView.builder(
                                 itemCount: trips.length,
                                 itemBuilder: (context, index) {
-                                  final tripDoc = trips[index];
-                                  final data = tripDoc.data();
-                                  final String vehiculo = (data['vehicleName'] ?? 'Desconocido').toString();
+                                  final data = trips[index];
+                                  final String vehiculo = (data['vehicle_name'] ?? 'Desconocido').toString();
                                   final String fecha = _formatFecha(data['date']);
-                                  final int totalCost = int.tryParse(data['totalCost']?.toString() ?? '0') ?? 0;
+                                  final int totalCost = (num.tryParse(data['total_cost']?.toString() ?? '0') ?? 0).round();
 
                                   final List<dynamic> tollsList = data['tolls'] as List<dynamic>? ?? [];
                                   String highway = 'Otras';
@@ -899,11 +880,10 @@ class _DashboardPageState extends State<DashboardPage> {
                                     physics: const NeverScrollableScrollPhysics(),
                                     itemCount: trips.length > 5 ? 5 : trips.length,
                                     itemBuilder: (context, index) {
-                                      final tripDoc = trips[index];
-                                      final data = tripDoc.data();
-                                      final String vehiculo = (data['vehicleName'] ?? 'Desconocido').toString();
+                                      final data = trips[index];
+                                      final String vehiculo = (data['vehicle_name'] ?? 'Desconocido').toString();
                                       final String fecha = _formatFecha(data['date']);
-                                      final int totalCost = int.tryParse(data['totalCost']?.toString() ?? '0') ?? 0;
+                                      final int totalCost = (num.tryParse(data['total_cost']?.toString() ?? '0') ?? 0).round();
 
                                       final List<dynamic> tollsList = data['tolls'] as List<dynamic>? ?? [];
                                       String highway = 'Otras';
@@ -1014,10 +994,9 @@ class _DashboardPageState extends State<DashboardPage> {
                                     physics: const NeverScrollableScrollPhysics(),
                                     itemCount: usersDocs.length > 5 ? 5 : usersDocs.length,
                                     itemBuilder: (context, index) {
-                                      final userDoc = usersDocs[index];
-                                      final data = userDoc.data();
+                                      final data = usersDocs[index];
                                       final String email = (data['email'] ?? 'Usuario sin correo').toString();
-                                      final String nombre = (data['nombre'] ?? data['name'] ?? 'Usuario de TAG OK').toString();
+                                      final String nombre = (data['nombre_mostrar'] ?? 'Usuario de TAG OK').toString();
                                       final String initial = email.isNotEmpty ? email[0].toUpperCase() : 'U';
 
                                       return Padding(
@@ -1509,7 +1488,7 @@ class HighwayProgressBars extends StatelessWidget {
 class UsersPage extends StatefulWidget {
   const UsersPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<UsersPage> createState() => _UsersPageState();
@@ -1632,11 +1611,11 @@ class _UsersPageState extends State<UsersPage> {
             ),
           ),
           Expanded(
-            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            child: StreamBuilder<List<Map<String, dynamic>>>(
               stream: widget.service.streamUsers(),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return Text('Error al leer Firestore: ${snapshot.error}');
+                  return Text('Error al leer datos: ${snapshot.error}');
                 }
 
                 if (!snapshot.hasData) {
@@ -1648,9 +1627,9 @@ class _UsersPageState extends State<UsersPage> {
                   );
                 }
 
-                final docs = snapshot.data!.docs;
+                final docs = snapshot.data!;
                 final filteredDocs = docs
-                    .where((doc) => _matchesFilters(doc.data()))
+                    .where((doc) => _matchesFilters(doc))
                     .toList();
 
                 if (filteredDocs.isEmpty) {
@@ -1698,8 +1677,8 @@ class _UsersPageState extends State<UsersPage> {
                                   DataColumn(label: Text('Acciones')),
                                 ],
                                 rows: pageDocs.map((doc) {
-                                  final Map<String, dynamic> data = doc.data();
-                                  final String docId = doc.id;
+                                  final Map<String, dynamic> data = doc;
+                                  final String docId = doc['id'] as String;
                                   final String nombre =
                                       (data['nombre_mostrar'] ?? 'Sin nombre')
                                           .toString();
@@ -1714,7 +1693,7 @@ class _UsersPageState extends State<UsersPage> {
                                       ) ??
                                       0;
                                   final String vehiculoPrincipal =
-                                      (data['vehiculo_principal_id'] ??
+                                      (data['vehiculo_principal_patente'] ??
                                               'Ninguno')
                                           .toString();
 
@@ -1948,22 +1927,19 @@ class _UsersPageState extends State<UsersPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0EA5E9),
             ),
-            onPressed: () {
+            onPressed: () async {
               final nuevoLimite = int.tryParse(limiteCtrl.text) ?? limiteActual;
-              FirebaseFirestore.instance
-                  .collection('usuarios')
-                  .doc(docId)
-                  .update({
-                    'nombre_mostrar': nombreCtrl.text,
-                    'limite_presupuesto_mensual': nuevoLimite,
-                  });
-              widget.service.logAction(
+              await Supabase.instance.client.from('usuarios').update({
+                'nombre_mostrar': nombreCtrl.text,
+                'limite_presupuesto_mensual': nuevoLimite,
+              }).eq('id', docId);
+              await widget.service.logAction(
                 action: 'EDIT_USER',
                 target: nombreActual,
                 details:
                     'Presupuesto: \$${_formatNumber(limiteActual)} -> \$${_formatNumber(nuevoLimite)}. Nombre: $nombreActual -> ${nombreCtrl.text}.',
               );
-              Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             },
             child: const Text('Guardar', style: TextStyle(color: Colors.white)),
           ),
@@ -1975,7 +1951,7 @@ class _UsersPageState extends State<UsersPage> {
   void _enviarResetPassword(BuildContext context, String correo) async {
     if (correo == 'Sin correo') return;
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: correo);
+      await Supabase.instance.client.auth.resetPasswordForEmail(correo);
       widget.service.logAction(
         action: 'RESET_PASSWORD',
         target: correo,
@@ -2023,17 +1999,33 @@ class _UsersPageState extends State<UsersPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0EA5E9),
             ),
-            onPressed: () {
-              FirebaseFirestore.instance
-                  .collection('usuarios')
-                  .doc(docId)
-                  .delete();
-              widget.service.logAction(
-                action: 'DELETE_USER',
-                target: nombre,
-                details: 'Se eliminó definitivamente el usuario y sus datos.',
-              );
-              Navigator.pop(context);
+            onPressed: () async {
+              try {
+                // Pasa por la Edge Function "delete-user" para borrar tambien
+                // la cuenta de Auth (no solo la fila de "usuarios"); un delete
+                // directo aqui dejaria la cuenta de Auth huerfana.
+                final response = await Supabase.instance.client.functions
+                    .invoke('delete-user', body: {'userId': docId});
+                if (response.status != 200) {
+                  throw Exception(response.data?.toString() ?? 'Error desconocido');
+                }
+                await widget.service.logAction(
+                  action: 'DELETE_USER',
+                  target: nombre,
+                  details: 'Se eliminó definitivamente el usuario y sus datos.',
+                );
+                if (context.mounted) Navigator.pop(context);
+              } catch (e) {
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error al eliminar usuario: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
             child: const Text(
               'Sí, Eliminar',
@@ -2049,7 +2041,7 @@ class _UsersPageState extends State<UsersPage> {
 class PorticosPage extends StatefulWidget {
   const PorticosPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<PorticosPage> createState() => _PorticosPageState();
@@ -2080,15 +2072,8 @@ class _PorticosPageState extends State<PorticosPage> {
     super.dispose();
   }
 
-  bool _matchesFilters(Map<String, dynamic> rawData) {
-    final Map<String, dynamic> data =
-        (rawData.containsKey('datos') && rawData['datos'] is Map)
-        ? Map<String, dynamic>.from(rawData['datos'])
-        : rawData;
-
-    final nombre = (data['nombre'] ?? data['autopista'] ?? '')
-        .toString()
-        .toLowerCase();
+  bool _matchesFilters(Map<String, dynamic> data) {
+    final nombre = (data['nombre'] ?? '').toString().toLowerCase();
     if (_searchQuery.isNotEmpty && !nombre.contains(_searchQuery)) {
       return false;
     }
@@ -2114,11 +2099,11 @@ class _PorticosPageState extends State<PorticosPage> {
       title: 'Pórticos',
       subtitle:
           'Catálogo operativo compartido con la app final. Administra las tarifas aquí.',
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      child: StreamBuilder<List<Map<String, dynamic>>>(
         stream: widget.service.streamPorticos(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Text('Error al leer Firestore: ${snapshot.error}');
+            return Text('Error al leer datos: ${snapshot.error}');
           }
 
           if (!snapshot.hasData) {
@@ -2130,15 +2115,10 @@ class _PorticosPageState extends State<PorticosPage> {
             );
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!;
 
           final Set<String> highwaysSet = {};
-          for (var doc in docs) {
-            final rawData = doc.data();
-            final data =
-                (rawData.containsKey('datos') && rawData['datos'] is Map)
-                ? Map<String, dynamic>.from(rawData['datos'])
-                : rawData;
+          for (var data in docs) {
             final String h = (data['autopista'] ?? '').toString();
             if (h.isNotEmpty) {
               highwaysSet.add(h);
@@ -2152,7 +2132,7 @@ class _PorticosPageState extends State<PorticosPage> {
           }
 
           final filteredDocs = docs
-              .where((doc) => _matchesFilters(doc.data()))
+              .where((doc) => _matchesFilters(doc))
               .toList();
 
           final int totalPages = (filteredDocs.length / _rowsPerPage).ceil();
@@ -2296,25 +2276,12 @@ class _PorticosPageState extends State<PorticosPage> {
                                         ),
                                         DataColumn(label: Text('Acciones')),
                                       ],
-                                      rows: pageDocs.map((doc) {
-                                        final Map<String, dynamic> rawData = doc
-                                            .data();
-                                        final String docId = doc.id;
-
-                                        final bool isNested =
-                                            rawData.containsKey('datos') &&
-                                            rawData['datos'] is Map;
-                                        final Map<String, dynamic> data =
-                                            isNested
-                                            ? Map<String, dynamic>.from(
-                                                rawData['datos'],
-                                              )
-                                            : rawData;
+                                      rows: pageDocs.map((data) {
+                                        final String docId =
+                                            data['id'] as String;
 
                                         final String nombre =
-                                            (data['nombre'] ??
-                                                    data['autopista'] ??
-                                                    'Sin nombre')
+                                            (data['nombre'] ?? 'Sin nombre')
                                                 .toString();
                                         final String autopista =
                                             (data['autopista'] ?? '')
@@ -2322,62 +2289,22 @@ class _PorticosPageState extends State<PorticosPage> {
                                         final String sentido =
                                             (data['sentido'] ?? '-').toString();
                                         final String base =
-                                            (data['tarifa_base'] ??
-                                                    data['costo'] ??
-                                                    data['Tarifa_Base'] ??
-                                                    data['Tarifa Base'] ??
-                                                    '0')
-                                                .toString();
+                                            (data['costo'] ?? '0').toString();
                                         final String punta =
-                                            (data['tarifa_punta'] ??
-                                                    data['costoPunta'] ??
-                                                    data['Tarifa_Punta'] ??
-                                                    data['Tarifa Punta'] ??
-                                                    '0')
+                                            (data['costo_punta'] ?? '0')
                                                 .toString();
                                         final String saturacion =
-                                            (data['tarifa_saturacion'] ??
-                                                    data['costoSaturacion'] ??
-                                                    data['Tarifa_Saturacion'] ??
-                                                    data['Tarifa Saturacion'] ??
-                                                    '0')
+                                            (data['costo_saturacion'] ?? '0')
                                                 .toString();
 
                                         final String lat =
-                                            (data['lat'] ??
-                                                    (data['location'] is Map
-                                                        ? data['location']['lat']
-                                                        : '') ??
-                                                    (data['ubicacion']
-                                                            is GeoPoint
-                                                        ? (data['ubicacion']
-                                                                  as GeoPoint)
-                                                              .latitude
-                                                        : '') ??
-                                                    '')
-                                                .toString();
+                                            (data['lat'] ?? '').toString();
                                         final String lng =
-                                            (data['lng'] ??
-                                                    (data['location'] is Map
-                                                        ? data['location']['lng']
-                                                        : '') ??
-                                                    (data['ubicacion']
-                                                            is GeoPoint
-                                                        ? (data['ubicacion']
-                                                                  as GeoPoint)
-                                                              .longitude
-                                                        : '') ??
-                                                    '')
-                                                .toString();
+                                            (data['lng'] ?? '').toString();
                                         final String grupo =
-                                            (data['grupo'] ??
-                                                    data['group'] ??
-                                                    '')
-                                                .toString();
+                                            (data['grupo'] ?? '').toString();
                                         final String secuencia =
-                                            (data['secuencia'] ??
-                                                    data['sequence'] ??
-                                                    '')
+                                            (data['secuencia'] ?? '')
                                                 .toString();
 
                                         return DataRow(
@@ -2581,8 +2508,7 @@ class _PorticosPageState extends State<PorticosPage> {
                                                       _mostrarDialogoEdicion(
                                                         context,
                                                         docId,
-                                                        rawData,
-                                                        isNested,
+                                                        data,
                                                       );
                                                     },
                                                   ),
@@ -2642,60 +2568,20 @@ class _PorticosPageState extends State<PorticosPage> {
   void _mostrarDialogoEdicion(
     BuildContext context,
     String docId,
-    Map<String, dynamic> rawData,
-    bool isNested,
+    Map<String, dynamic> data,
   ) {
-    final Map<String, dynamic> data = isNested
-        ? Map<String, dynamic>.from(rawData['datos'] ?? {})
-        : rawData;
-
-    final String nombreActual =
-        (data['nombre'] ?? data['autopista'] ?? 'Sin nombre').toString();
+    final String nombreActual = (data['nombre'] ?? 'Sin nombre').toString();
     final String autopistaActual = (data['autopista'] ?? '').toString();
     final String sentidoActual = (data['sentido'] ?? '').toString();
-    final String baseActual =
-        (data['tarifa_base'] ??
-                data['costo'] ??
-                data['cost'] ??
-                data['Tarifa_Base'] ??
-                data['Tarifa Base'] ??
-                '0')
-            .toString();
-    final String puntaActual =
-        (data['tarifa_punta'] ??
-                data['costoPunta'] ??
-                data['Tarifa_Punta'] ??
-                data['Tarifa Punta'] ??
-                '0')
-            .toString();
+    final String baseActual = (data['costo'] ?? '0').toString();
+    final String puntaActual = (data['costo_punta'] ?? '0').toString();
     final String saturacionActual =
-        (data['tarifa_saturacion'] ??
-                data['costoSaturacion'] ??
-                data['Tarifa_Saturacion'] ??
-                data['Tarifa Saturacion'] ??
-                '0')
-            .toString();
+        (data['costo_saturacion'] ?? '0').toString();
 
-    final String latActual =
-        (data['lat'] ??
-                (data['location'] is Map ? data['location']['lat'] : '') ??
-                (data['ubicacion'] is GeoPoint
-                    ? (data['ubicacion'] as GeoPoint).latitude
-                    : '') ??
-                '')
-            .toString();
-    final String lngActual =
-        (data['lng'] ??
-                (data['location'] is Map ? data['location']['lng'] : '') ??
-                (data['ubicacion'] is GeoPoint
-                    ? (data['ubicacion'] as GeoPoint).longitude
-                    : '') ??
-                '')
-            .toString();
-    final String grupoActual = (data['grupo'] ?? data['group'] ?? '')
-        .toString();
-    final String secuenciaActual = (data['secuencia'] ?? data['sequence'] ?? '')
-        .toString();
+    final String latActual = (data['lat'] ?? '').toString();
+    final String lngActual = (data['lng'] ?? '').toString();
+    final String grupoActual = (data['grupo'] ?? '').toString();
+    final String secuenciaActual = (data['secuencia'] ?? '').toString();
 
     final TextEditingController nombreCtrl = TextEditingController(
       text: nombreActual,
@@ -2877,7 +2763,7 @@ class _PorticosPageState extends State<PorticosPage> {
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0EA5E9),
             ),
-            onPressed: () {
+            onPressed: () async {
               final double? nBase = double.tryParse(
                 baseCtrl.text.replaceAll(',', '.'),
               );
@@ -2899,134 +2785,50 @@ class _PorticosPageState extends State<PorticosPage> {
               final String newAutopista = autopistaCtrl.text.trim();
               final String newSentido = selectedSentido;
               final String newGrupo = grupoCtrl.text.trim();
-              final int? newSecuencia = int.tryParse(secuenciaCtrl.text.trim());
+              final String newSecuencia = secuenciaCtrl.text.trim();
 
-              final Map<String, dynamic> updates = {};
+              final Map<String, dynamic> updates = {
+                'nombre': newNombre,
+                'autopista': newAutopista,
+                'sentido': newSentido,
+                'grupo': newGrupo,
+                'secuencia': newSecuencia,
+              };
 
-              // 1. Coordinates update strategy
               if (nLat != null && nLng != null) {
-                if (data.containsKey('ubicacion') ||
-                    data['ubicacion'] is GeoPoint) {
-                  updates[isNested ? 'datos.ubicacion' : 'ubicacion'] =
-                      GeoPoint(nLat, nLng);
-                } else if (data.containsKey('location') ||
-                    data['location'] is Map) {
-                  updates[isNested ? 'datos.location.lat' : 'location.lat'] =
-                      nLat;
-                  updates[isNested ? 'datos.location.lng' : 'location.lng'] =
-                      nLng;
-                } else {
-                  updates[isNested ? 'datos.lat' : 'lat'] = nLat;
-                  updates[isNested ? 'datos.lng' : 'lng'] = nLng;
-                }
+                updates['lat'] = nLat;
+                updates['lng'] = nLng;
               }
-
-              // 2. Fares update strategy
-              final String baseKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('costo')
-                        ? 'datos.costo'
-                        : (Map<String, dynamic>.from(
-                                rawData['datos'] ?? {},
-                              ).containsKey('cost')
-                              ? 'datos.cost'
-                              : 'datos.tarifa_base'))
-                  : (rawData.containsKey('costo')
-                        ? 'costo'
-                        : (rawData.containsKey('cost')
-                              ? 'cost'
-                              : 'tarifa_base'));
-
-              final String puntaKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('costoPunta')
-                        ? 'datos.costoPunta'
-                        : 'datos.tarifa_punta')
-                  : (rawData.containsKey('costoPunta')
-                        ? 'costoPunta'
-                        : 'tarifa_punta');
-
-              final String satKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('costoSaturacion')
-                        ? 'datos.costoSaturacion'
-                        : 'datos.tarifa_saturacion')
-                  : (rawData.containsKey('costoSaturacion')
-                        ? 'costoSaturacion'
-                        : 'tarifa_saturacion');
-
-              if (nBase != null) updates[baseKey] = nBase;
-              if (nPunta != null) updates[puntaKey] = nPunta;
-              if (nSaturacion != null) updates[satKey] = nSaturacion;
-
-              // 3. Identification and classification keys
-              final String nombreKey = isNested ? 'datos.nombre' : 'nombre';
-              final String autopistaKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('highway')
-                        ? 'datos.highway'
-                        : 'datos.autopista')
-                  : (rawData.containsKey('highway') ? 'highway' : 'autopista');
-
-              final String sentidoKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('direction')
-                        ? 'datos.direction'
-                        : 'datos.sentido')
-                  : (rawData.containsKey('direction')
-                        ? 'direction'
-                        : 'sentido');
-
-              final String grupoKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('group')
-                        ? 'datos.group'
-                        : 'datos.grupo')
-                  : (rawData.containsKey('group') ? 'group' : 'grupo');
-
-              final String secuenciaKey = isNested
-                  ? (Map<String, dynamic>.from(
-                          rawData['datos'] ?? {},
-                        ).containsKey('sequence')
-                        ? 'datos.sequence'
-                        : 'datos.secuencia')
-                  : (rawData.containsKey('sequence')
-                        ? 'sequence'
-                        : 'secuencia');
-
-              updates[nombreKey] = newNombre;
-              updates[autopistaKey] = newAutopista;
-              updates[sentidoKey] = newSentido;
-              updates[grupoKey] = newGrupo;
-              updates[secuenciaKey] = newSecuencia;
+              if (nBase != null) updates['costo'] = nBase;
+              if (nPunta != null) updates['costo_punta'] = nPunta;
+              if (nSaturacion != null) updates['costo_saturacion'] = nSaturacion;
 
               final StringBuffer logDetails = StringBuffer();
               logDetails.write('Edición de pórtico.');
-              if (nombreActual != newNombre)
+              if (nombreActual != newNombre) {
                 logDetails.write(' Nombre: $nombreActual -> $newNombre.');
-              if (autopistaActual != newAutopista)
+              }
+              if (autopistaActual != newAutopista) {
                 logDetails.write(
                   ' Autopista: $autopistaActual -> $newAutopista.',
                 );
-              if (sentidoActual != newSentido)
+              }
+              if (sentidoActual != newSentido) {
                 logDetails.write(' Sentido: $sentidoActual -> $newSentido.');
+              }
               if (latActual != latCtrl.text || lngActual != lngCtrl.text) {
                 logDetails.write(
                   ' Ubicación: $latActual, $lngActual -> ${latCtrl.text}, ${lngCtrl.text}.',
                 );
               }
-              if (grupoActual != newGrupo)
+              if (grupoActual != newGrupo) {
                 logDetails.write(' Grupo: $grupoActual -> $newGrupo.');
-              if (secuenciaActual != secuenciaCtrl.text)
+              }
+              if (secuenciaActual != secuenciaCtrl.text) {
                 logDetails.write(
                   ' Secuencia: $secuenciaActual -> ${secuenciaCtrl.text}.',
                 );
+              }
 
               logDetails.write(
                 ' Tarifa Base: \$$baseActual -> \$${baseCtrl.text}.',
@@ -3038,18 +2840,18 @@ class _PorticosPageState extends State<PorticosPage> {
                 ' Tarifa Sat.: \$$saturacionActual -> \$${saturacionCtrl.text}.',
               );
 
-              FirebaseFirestore.instance
-                  .collection('porticos')
-                  .doc(docId)
-                  .update(updates);
+              await Supabase.instance.client
+                  .from('porticos')
+                  .update(updates)
+                  .eq('id', docId);
 
-              widget.service.logAction(
+              await widget.service.logAction(
                 action: 'EDIT_TARIFF',
                 target: newNombre,
                 details: logDetails.toString(),
               );
 
-              Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             },
             child: const Text('Guardar', style: TextStyle(color: Colors.white)),
           ),
@@ -3078,17 +2880,14 @@ class _PorticosPageState extends State<PorticosPage> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () {
-              FirebaseFirestore.instance
-                  .collection('porticos')
-                  .doc(docId)
-                  .delete();
-              widget.service.logAction(
+            onPressed: () async {
+              await Supabase.instance.client.from('porticos').delete().eq('id', docId);
+              await widget.service.logAction(
                 action: 'DELETE_PORTICO',
                 target: nombre,
                 details: 'Se eliminó el pórtico master de la base de datos.',
               );
-              Navigator.pop(context);
+              if (context.mounted) Navigator.pop(context);
             },
             child: const Text(
               'Sí, Eliminar',
@@ -3104,19 +2903,10 @@ class _PorticosPageState extends State<PorticosPage> {
 class TariffsPage extends StatelessWidget {
   const TariffsPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   String _formatFecha(dynamic dateVal) {
     if (dateVal == null) return '-';
-    if (dateVal is Timestamp) {
-      final date = dateVal.toDate();
-      final y = date.year;
-      final m = date.month.toString().padLeft(2, '0');
-      final d = date.day.toString().padLeft(2, '0');
-      final h = date.hour.toString().padLeft(2, '0');
-      final min = date.minute.toString().padLeft(2, '0');
-      return '$y-$m-$d $h:$min';
-    }
     final String str = dateVal.toString();
     if (str.length >= 16) {
       return str.substring(0, 16).replaceAll('T', ' ');
@@ -3129,11 +2919,11 @@ class TariffsPage extends StatelessWidget {
     Map<String, dynamic> tripData,
   ) {
     final List<dynamic> tollsList = tripData['tolls'] as List<dynamic>? ?? [];
-    final String vehiculo = (tripData['vehicleName'] ?? 'Desconocido')
+    final String vehiculo = (tripData['vehicle_name'] ?? 'Desconocido')
         .toString();
     final String fecha = _formatFecha(tripData['date']);
     final int totalCost =
-        int.tryParse(tripData['totalCost']?.toString() ?? '0') ?? 0;
+        (num.tryParse(tripData['total_cost']?.toString() ?? '0') ?? 0).round();
 
     showDialog(
       context: context,
@@ -3288,16 +3078,15 @@ class TariffsPage extends StatelessWidget {
           'Cobro Total',
           'Acciones',
         ],
-        rowBuilder: (doc) {
-          final Map<String, dynamic> data = doc.data();
-          final String vehiculo = (data['vehicleName'] ?? 'Desconocido')
+        rowBuilder: (data) {
+          final String vehiculo = (data['vehicle_name'] ?? 'Desconocido')
               .toString();
           final String fecha = _formatFecha(data['date']);
           final double distance =
-              double.tryParse(data['distanceKm']?.toString() ?? '0') ?? 0.0;
+              double.tryParse(data['distance_km']?.toString() ?? '0') ?? 0.0;
           final String duracion = (data['duration'] ?? '-').toString();
           final int totalCost =
-              int.tryParse(data['totalCost']?.toString() ?? '0') ?? 0;
+              (num.tryParse(data['total_cost']?.toString() ?? '0') ?? 0).round();
 
           return [
             DataCell(
@@ -3420,7 +3209,7 @@ class TariffsPage extends StatelessWidget {
 class ReportsPage extends StatefulWidget {
   const ReportsPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<ReportsPage> createState() => _ReportsPageState();
@@ -4123,7 +3912,7 @@ class _StatCard extends StatelessWidget {
 class AdminsManagementPage extends StatefulWidget {
   const AdminsManagementPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<AdminsManagementPage> createState() => _AdminsManagementPageState();
@@ -4155,7 +3944,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
 
   bool _matchesFilters(Map<String, dynamic> data) {
     final String email = (data['email'] ?? '').toString().toLowerCase();
-    final String role = (data['rol'] ?? data['role'] ?? 'operador').toString().toLowerCase();
+    final String role = (data['rol'] ?? 'operador').toString().toLowerCase();
 
     if (_searchQuery.isNotEmpty && !email.contains(_searchQuery)) {
       return false;
@@ -4215,27 +4004,20 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
   }
 
   Future<void> _createAdminAccount(String email, String password, String role) async {
-    FirebaseApp? tempApp;
     try {
-      final String tempAppName = 'creator_app_${DateTime.now().millisecondsSinceEpoch}';
-      tempApp = await Firebase.initializeApp(
-        name: tempAppName,
-        options: Firebase.app().options,
+      // Delega la creación al Edge Function "create-admin": corre con la
+      // service-role key en el servidor, así que no afecta la sesión del
+      // admin actual (a diferencia del viejo truco de la segunda FirebaseApp).
+      final response = await Supabase.instance.client.functions.invoke(
+        'create-admin',
+        body: {'email': email, 'password': password, 'rol': role},
       );
 
-      final FirebaseAuth tempAuth = FirebaseAuth.instanceFor(app: tempApp);
-      final UserCredential creds = await tempAuth.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      if (response.status != 200) {
+        throw Exception(response.data?.toString() ?? 'Error desconocido');
+      }
 
-      final String uid = creds.user!.uid;
-
-      await FirebaseFirestore.instance.collection('administradores').doc(uid).set({
-        'email': email,
-        'rol': role,
-        'fecha_creacion': FieldValue.serverTimestamp(),
-      });
+      final String uid = (response.data as Map)['uid'].toString();
 
       await widget.service.logAction(
         action: 'CREATE_ADMIN',
@@ -4259,10 +4041,6 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
             backgroundColor: Colors.red,
           ),
         );
-      }
-    } finally {
-      if (tempApp != null) {
-        await tempApp.delete();
       }
     }
   }
@@ -4325,7 +4103,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
 
   Future<void> _resetAdminPassword(String email) async {
     try {
-      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      await Supabase.instance.client.auth.resetPasswordForEmail(email);
       await widget.service.logAction(
         action: 'RESET_ADMIN_PASSWORD',
         target: email,
@@ -4486,10 +4264,9 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
     );
   }
 
-  void _showEditRoleDialog(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  void _showEditRoleDialog(Map<String, dynamic> data) {
     final String email = (data['email'] ?? '').toString();
-    final String currentRole = (data['rol'] ?? data['role'] ?? 'operador').toString();
+    final String currentRole = (data['rol'] ?? 'operador').toString();
     String selectedRole = currentRole == 'super_admin' ? 'super_admin' : 'operador';
     bool isSaving = false;
 
@@ -4545,7 +4322,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
                           setDialogState(() {
                             isSaving = true;
                           });
-                          await _changeAdminRole(doc.id, email, selectedRole);
+                          await _changeAdminRole(data['id'] as String, email, selectedRole);
                           if (context.mounted) {
                             Navigator.of(ctx).pop();
                           }
@@ -4560,8 +4337,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
     );
   }
 
-  void _showDeleteConfirmDialog(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
-    final data = doc.data();
+  void _showDeleteConfirmDialog(Map<String, dynamic> data) {
     final String email = (data['email'] ?? '').toString();
     bool isSaving = false;
 
@@ -4591,7 +4367,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
                           setDialogState(() {
                             isSaving = true;
                           });
-                          await _revokeAdminAccess(doc.id, email);
+                          await _revokeAdminAccess(data['id'] as String, email);
                           if (context.mounted) {
                             Navigator.of(ctx).pop();
                           }
@@ -4608,16 +4384,16 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
 
   @override
   Widget build(BuildContext context) {
-    final String currentAdminEmail = FirebaseAuth.instance.currentUser?.email ?? '';
+    final String currentAdminEmail = Supabase.instance.client.auth.currentUser?.email ?? '';
 
     return _AdminPageScaffold(
       title: 'Gestión de Administradores',
       subtitle: 'Administra los roles y accesos al panel backoffice de TAG OK.',
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      child: StreamBuilder<List<Map<String, dynamic>>>(
         stream: widget.service.streamAdministradores(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Text('Error al leer Firestore: ${snapshot.error}');
+            return Text('Error al leer datos: ${snapshot.error}');
           }
 
           if (!snapshot.hasData) {
@@ -4629,9 +4405,9 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
             );
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!;
           final filteredDocs = docs
-              .where((doc) => _matchesFilters(doc.data()))
+              .where((doc) => _matchesFilters(doc))
               .toList();
 
           if (filteredDocs.isEmpty) {
@@ -4688,10 +4464,9 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
                                   DataColumn(label: Text('Rol')),
                                   DataColumn(label: Text('Acciones')),
                                 ],
-                                rows: pageDocs.map((doc) {
-                                  final data = doc.data();
+                                rows: pageDocs.map((data) {
                                   final String email = (data['email'] ?? '').toString();
-                                  final String role = (data['rol'] ?? data['role'] ?? 'operador').toString();
+                                  final String role = (data['rol'] ?? 'operador').toString();
                                   final bool isCurrentUser = email.toLowerCase() == currentAdminEmail.toLowerCase();
 
                                   return DataRow(
@@ -4712,7 +4487,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
                                             IconButton(
                                               icon: const Icon(Icons.edit_outlined, color: Colors.blue),
                                               tooltip: isCurrentUser ? 'No puedes cambiar tu propio rol' : 'Cambiar Rol',
-                                              onPressed: isCurrentUser ? null : () => _showEditRoleDialog(doc),
+                                              onPressed: isCurrentUser ? null : () => _showEditRoleDialog(data),
                                             ),
                                             IconButton(
                                               icon: const Icon(Icons.lock_reset, color: Colors.amber),
@@ -4722,7 +4497,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
                                             IconButton(
                                               icon: const Icon(Icons.delete_outline, color: Colors.red),
                                               tooltip: isCurrentUser ? 'No puedes revocar tu propio acceso' : 'Revocar Acceso',
-                                              onPressed: isCurrentUser ? null : () => _showDeleteConfirmDialog(doc),
+                                              onPressed: isCurrentUser ? null : () => _showDeleteConfirmDialog(data),
                                             ),
                                           ],
                                         ),
@@ -4844,7 +4619,7 @@ class _AdminsManagementPageState extends State<AdminsManagementPage> {
 class AuditLogPage extends StatefulWidget {
   const AuditLogPage({super.key, required this.service});
 
-  final AdminFirestoreService service;
+  final AdminSupabaseService service;
 
   @override
   State<AuditLogPage> createState() => _AuditLogPageState();
@@ -4875,7 +4650,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
   }
 
   bool _matchesFilters(Map<String, dynamic> data) {
-    final String adminEmail = (data['adminEmail'] ?? '')
+    final String adminEmail = (data['admin_email'] ?? '')
         .toString()
         .toLowerCase();
     final String target = (data['target'] ?? '').toString().toLowerCase();
@@ -4898,15 +4673,6 @@ class _AuditLogPageState extends State<AuditLogPage> {
 
   String _formatFecha(dynamic dateVal) {
     if (dateVal == null) return '-';
-    if (dateVal is Timestamp) {
-      final date = dateVal.toDate();
-      final y = date.year;
-      final m = date.month.toString().padLeft(2, '0');
-      final d = date.day.toString().padLeft(2, '0');
-      final h = date.hour.toString().padLeft(2, '0');
-      final min = date.minute.toString().padLeft(2, '0');
-      return '$y-$m-$d $h:$min';
-    }
     return dateVal.toString();
   }
 
@@ -4970,11 +4736,11 @@ class _AuditLogPageState extends State<AuditLogPage> {
       title: 'Bitácora de Auditoría',
       subtitle:
           'Historial irreversible de cambios y acciones realizadas por administradores.',
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      child: StreamBuilder<List<Map<String, dynamic>>>(
         stream: widget.service.streamAuditLogs(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Text('Error al leer Firestore: ${snapshot.error}');
+            return Text('Error al leer datos: ${snapshot.error}');
           }
 
           if (!snapshot.hasData) {
@@ -4986,9 +4752,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
             );
           }
 
-          final docs = snapshot.data!.docs;
+          final docs = snapshot.data!;
           final filteredDocs = docs
-              .where((doc) => _matchesFilters(doc.data()))
+              .where((doc) => _matchesFilters(doc))
               .toList();
 
           if (filteredDocs.isEmpty) {
@@ -5047,13 +4813,12 @@ class _AuditLogPageState extends State<AuditLogPage> {
                                   DataColumn(label: Text('Objetivo')),
                                   DataColumn(label: Text('Detalles')),
                                 ],
-                                rows: pageDocs.map((doc) {
-                                  final data = doc.data();
+                                rows: pageDocs.map((data) {
                                   final String fechaStr = _formatFecha(
                                     data['fecha'],
                                   );
                                   final String adminEmail =
-                                      (data['adminEmail'] ?? 'Sistema')
+                                      (data['admin_email'] ?? 'Sistema')
                                           .toString();
                                   final String action = (data['action'] ?? '')
                                       .toString();
@@ -5325,11 +5090,10 @@ class _FirestoreListTable extends StatefulWidget {
     required this.itemLabel,
   });
 
-  final Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> stream;
+  final Stream<List<Map<String, dynamic>>> stream;
   final String emptyMessage;
   final List<String> columns;
-  final List<DataCell> Function(QueryDocumentSnapshot<Map<String, dynamic>>)
-  rowBuilder;
+  final List<DataCell> Function(Map<String, dynamic>) rowBuilder;
   final String itemLabel;
 
   @override
@@ -5345,11 +5109,11 @@ class _FirestoreListTableState extends State<_FirestoreListTable> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        child: StreamBuilder<List<Map<String, dynamic>>>(
           stream: widget.stream,
           builder: (context, snapshot) {
             if (snapshot.hasError) {
-              return Text('Error al leer Firestore: ${snapshot.error}');
+              return Text('Error al leer datos: ${snapshot.error}');
             }
 
             if (!snapshot.hasData) {
@@ -5361,8 +5125,7 @@ class _FirestoreListTableState extends State<_FirestoreListTable> {
               );
             }
 
-            final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs =
-                snapshot.data!;
+            final List<Map<String, dynamic>> docs = snapshot.data!;
             if (docs.isEmpty) {
               return Center(
                 child: Padding(

@@ -1,32 +1,34 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class PorticoModel {
   final String id;
   final String nombre;
-  final GeoPoint ubicacion;
-  final String nombreAutopista;
+  final double lat;
+  final double lng;
+  final String? nombreAutopista;
 
   PorticoModel({
     required this.id,
     required this.nombre,
-    required this.ubicacion,
-    required this.nombreAutopista,
+    required this.lat,
+    required this.lng,
+    this.nombreAutopista,
   });
 
-  factory PorticoModel.fromJson(Map<String, dynamic> json, String id) {
+  factory PorticoModel.fromJson(Map<String, dynamic> row) {
     return PorticoModel(
-      id: id,
-      nombre: json['nombre'] ?? '',
-      ubicacion: json['ubicacion'] as GeoPoint,
-      nombreAutopista: json['nombre_autopista'] ?? '',
+      id: row['id'] ?? '',
+      nombre: row['nombre'] ?? '',
+      lat: (row['lat'] as num).toDouble(),
+      lng: (row['lng'] as num).toDouble(),
+      nombreAutopista: row['autopista'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'nombre': nombre,
-      'ubicacion': ubicacion,
-      'nombre_autopista': nombreAutopista,
+      'lat': lat,
+      'lng': lng,
+      'autopista': nombreAutopista,
     };
   }
 }

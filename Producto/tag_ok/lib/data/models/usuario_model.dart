@@ -1,30 +1,40 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class UsuarioModel {
   final String uid;
   final String email;
   final String? nombreMostrar;
+  final String? telefono;
   final DateTime fechaCreacion;
-  final String? vehiculoPrincipalId;
+  final String? vehiculoPrincipalPatente;
   final double limitePresupuestoMensual;
+  final bool notifCobros;
+  final bool notifPresupuesto;
+  final Map<String, dynamic> alertasVistas;
 
   UsuarioModel({
     required this.uid,
     required this.email,
     this.nombreMostrar,
+    this.telefono,
     required this.fechaCreacion,
-    this.vehiculoPrincipalId,
+    this.vehiculoPrincipalPatente,
     this.limitePresupuestoMensual = 0.0,
+    this.notifCobros = true,
+    this.notifPresupuesto = true,
+    this.alertasVistas = const {},
   });
 
-  factory UsuarioModel.fromJson(Map<String, dynamic> json, String id) {
+  factory UsuarioModel.fromJson(Map<String, dynamic> row) {
     return UsuarioModel(
-      uid: id,
-      email: json['email'] ?? '',
-      nombreMostrar: json['nombre_mostrar'],
-      fechaCreacion: (json['fecha_creacion'] as Timestamp).toDate(),
-      vehiculoPrincipalId: json['vehiculo_principal_id'],
-      limitePresupuestoMensual: (json['limite_presupuesto_mensual'] ?? 0.0).toDouble(),
+      uid: row['id'] ?? '',
+      email: row['email'] ?? '',
+      nombreMostrar: row['nombre_mostrar'],
+      telefono: row['telefono'],
+      fechaCreacion: DateTime.parse(row['fecha_creacion']),
+      vehiculoPrincipalPatente: row['vehiculo_principal_patente'],
+      limitePresupuestoMensual: (row['limite_presupuesto_mensual'] ?? 0.0).toDouble(),
+      notifCobros: row['notif_cobros'] ?? true,
+      notifPresupuesto: row['notif_presupuesto'] ?? true,
+      alertasVistas: Map<String, dynamic>.from(row['alertas_vistas'] ?? {}),
     );
   }
 
@@ -32,9 +42,12 @@ class UsuarioModel {
     return {
       'email': email,
       'nombre_mostrar': nombreMostrar,
-      'fecha_creacion': Timestamp.fromDate(fechaCreacion),
-      'vehiculo_principal_id': vehiculoPrincipalId,
+      'telefono': telefono,
+      'vehiculo_principal_patente': vehiculoPrincipalPatente,
       'limite_presupuesto_mensual': limitePresupuestoMensual,
+      'notif_cobros': notifCobros,
+      'notif_presupuesto': notifPresupuesto,
+      'alertas_vistas': alertasVistas,
     };
   }
 }

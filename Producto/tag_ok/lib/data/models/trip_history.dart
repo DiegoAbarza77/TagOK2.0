@@ -1,5 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
 class TollRecord {
   final String name;
   final double cost;
@@ -50,24 +48,23 @@ class TripHistory {
   Map<String, dynamic> toMap() {
     return {
       'date': date.toIso8601String(),
-      'totalCost': totalCost,
+      'total_cost': totalCost,
       'tolls': tolls.map((t) => t.toMap()).toList(),
-      'distanceKm': distanceKm,
+      'distance_km': distanceKm,
       'duration': duration,
-      'vehicleName': vehicleName,
+      'vehicle_name': vehicleName,
     };
   }
 
-  factory TripHistory.fromFirestore(DocumentSnapshot doc) {
-    final map = doc.data() as Map<String, dynamic>;
+  factory TripHistory.fromJson(Map<String, dynamic> row) {
     return TripHistory(
-      id: doc.id,
-      date: DateTime.parse(map['date']),
-      totalCost: (map['totalCost'] as num).toDouble(),
-      tolls: (map['tolls'] as List).map((t) => TollRecord.fromMap(t)).toList(),
-      distanceKm: (map['distanceKm'] as num).toDouble(),
-      duration: map['duration'] ?? '',
-      vehicleName: map['vehicleName'] ?? 'Desconocido',
+      id: row['id'],
+      date: DateTime.parse(row['date']),
+      totalCost: (row['total_cost'] as num).toDouble(),
+      tolls: (row['tolls'] as List).map((t) => TollRecord.fromMap(t)).toList(),
+      distanceKm: (row['distance_km'] as num).toDouble(),
+      duration: row['duration'] ?? '',
+      vehicleName: row['vehicle_name'] ?? 'Desconocido',
     );
   }
 }

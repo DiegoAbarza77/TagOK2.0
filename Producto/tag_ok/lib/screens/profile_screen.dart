@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login_screen.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../presentation/providers/auth_provider.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   final Color bgColor = const Color(0xFF0F172A);
@@ -16,9 +17,9 @@ class ProfileScreen extends StatelessWidget {
   ); // Verde para el presupuesto
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     // Obtenemos el usuario que inició sesión en este momento
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
 
     // Si por alguna razón no hay sesión activa, evitamos errores
     if (user == null) {
@@ -30,23 +31,28 @@ class ProfileScreen extends StatelessWidget {
       );
     }
 
-    // Usamos StreamBuilder para escuchar en tiempo real la base de datos de ESTE usuario
-    return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('usuarios')
-          .doc(user.uid)
-          .snapshots(),
+    // Usamos un stream de Realtime para escuchar la fila de este usuario
+    return StreamBuilder<List<Map<String, dynamic>>>(
+      stream: Supabase.instance.client
+          .from('usuarios')
+          .stream(primaryKey: ['id'])
+          .eq('id', user.id),
       builder: (context, snapshot) {
-        // Mientras carga desde Firebase
+        // Mientras carga desde Supabase
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
         if (snapshot.hasError) {
+          debugPrint('TAG_OK_PROFILE: Error al escuchar usuarios/${user.id}: ${snapshot.error}');
           return Center(
-            child: Text(
-              "Error al cargar perfil",
-              style: TextStyle(color: textMain),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                "Error al cargar perfil:\n${snapshot.error}",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.redAccent),
+              ),
             ),
           );
         }
@@ -58,11 +64,12 @@ class ProfileScreen extends StatelessWidget {
         String limitePresupuesto = '\$50.000'; // Default si no tiene límite
         String vehiculoPrincipal = 'Ninguno';
         String miembroDesde = 'Reciente';
+        String telefono = 'Sin registrar';
 
         Map<String, dynamic> userData = {};
-        // Si Firebase devolvió la data exitosamente, reescribimos los valores
-        if (snapshot.hasData && snapshot.data!.exists) {
-          userData = snapshot.data!.data() as Map<String, dynamic>;
+        // Si Supabase devolvió la data exitosamente, reescribimos los valores
+        if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+          userData = snapshot.data!.first;
           final data = userData;
 
           if (data['nombre_mostrar'] != null &&
@@ -76,22 +83,26 @@ class ProfileScreen extends StatelessWidget {
 
           if (data['limite_presupuesto_mensual'] != null) {
             final val = data['limite_presupuesto_mensual'];
-            if (val is int) {
-              limiteNum = val;
+            if (val is num) {
+              limiteNum = val.toInt();
             } else if (val is String) {
               limiteNum = int.tryParse(val) ?? 50000;
             }
             limitePresupuesto = '\$$limiteNum';
           }
 
-          if (data['vehiculo_principal_id'] != null &&
-              data['vehiculo_principal_id'].toString().isNotEmpty) {
-            vehiculoPrincipal = data['vehiculo_principal_id'];
+          if (data['vehiculo_principal_patente'] != null &&
+              data['vehiculo_principal_patente'].toString().isNotEmpty) {
+            vehiculoPrincipal = data['vehiculo_principal_patente'];
+          }
+
+          if (data['telefono'] != null &&
+              data['telefono'].toString().isNotEmpty) {
+            telefono = data['telefono'];
           }
 
           if (data['fecha_creacion'] != null) {
-            final Timestamp ts = data['fecha_creacion'];
-            final DateTime date = ts.toDate();
+            final DateTime date = DateTime.parse(data['fecha_creacion']);
             // Formatear mes en español
             final meses = [
               'Ene',
@@ -145,9 +156,10 @@ class ProfileScreen extends StatelessWidget {
                     child: GestureDetector(
                       onTap: () => _mostrarDialogoEdicion(
                         context,
-                        user.uid,
+                        user.id,
                         nombre == 'Usuario Tag OK' ? '' : nombre,
                         limiteNum,
+                        telefono == 'Sin registrar' ? '' : telefono,
                       ),
                       child: Container(
                         padding: const EdgeInsets.all(8),
@@ -207,14 +219,26 @@ class ProfileScreen extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: _buildSummaryCard(
-                  title: 'Miembro desde',
-                  value: miembroDesde,
-                  icon: Icons.calendar_month_outlined,
-                  color: primaryColor,
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSummaryCard(
+                      title: 'Teléfono',
+                      value: telefono,
+                      icon: Icons.phone_outlined,
+                      color: primaryColor,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildSummaryCard(
+                      title: 'Miembro desde',
+                      value: miembroDesde,
+                      icon: Icons.calendar_month_outlined,
+                      color: primaryColor,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 32),
 
@@ -222,7 +246,7 @@ class ProfileScreen extends StatelessWidget {
               _buildProfileOption(
                 icon: Icons.notifications_none_outlined,
                 title: 'Notificaciones / Alertas',
-                onTap: () => _mostrarOpcionesNotificaciones(context, user.uid, userData),
+                onTap: () => _mostrarOpcionesNotificaciones(context, user.id, userData),
               ),
               const SizedBox(height: 16),
               _buildProfileOption(
@@ -238,8 +262,8 @@ class ProfileScreen extends StatelessWidget {
                 height: 56,
                 child: ElevatedButton.icon(
                   onPressed: () async {
-                    // Cerrar sesión real en Firebase
-                    await FirebaseAuth.instance.signOut();
+                    // Cerrar sesión real en Supabase y limpiar el estado
+                    await ref.read(authNotifierProvider.notifier).signOut();
 
                     // Volver a la pantalla de inicio de sesión eliminando el historial
                     if (context.mounted) {
@@ -307,23 +331,45 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 24),
                   SwitchListTile(
-                    activeColor: primaryColor,
+                    activeThumbColor: primaryColor,
                     title: Text('Nuevos cobros de TAG', style: TextStyle(color: textMain)),
                     subtitle: Text('Recibe una alerta cada vez que pases por un pórtico.', style: TextStyle(color: textMuted, fontSize: 12)),
                     value: cobros,
-                    onChanged: (val) {
+                    onChanged: (val) async {
                       setModalState(() => cobros = val);
-                      FirebaseFirestore.instance.collection('usuarios').doc(uid).set({'notif_cobros': val}, SetOptions(merge: true));
+                      try {
+                        await Supabase.instance.client
+                            .from('usuarios')
+                            .update({'notif_cobros': val}).eq('id', uid);
+                      } catch (e) {
+                        setModalState(() => cobros = !val);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('No se pudo guardar la preferencia.')),
+                          );
+                        }
+                      }
                     },
                   ),
                   SwitchListTile(
-                    activeColor: primaryColor,
+                    activeThumbColor: primaryColor,
                     title: Text('Alertas de Presupuesto', style: TextStyle(color: textMain)),
                     subtitle: Text('Te avisaremos cuando te acerques a tu límite mensual.', style: TextStyle(color: textMuted, fontSize: 12)),
                     value: presupuesto,
-                    onChanged: (val) {
+                    onChanged: (val) async {
                       setModalState(() => presupuesto = val);
-                      FirebaseFirestore.instance.collection('usuarios').doc(uid).set({'notif_presupuesto': val}, SetOptions(merge: true));
+                      try {
+                        await Supabase.instance.client
+                            .from('usuarios')
+                            .update({'notif_presupuesto': val}).eq('id', uid);
+                      } catch (e) {
+                        setModalState(() => presupuesto = !val);
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('No se pudo guardar la preferencia.')),
+                          );
+                        }
+                      }
                     },
                   ),
                   const SizedBox(height: 16),
@@ -354,12 +400,16 @@ class ProfileScreen extends StatelessWidget {
     String uid,
     String nombreActual,
     int limiteActual,
+    String telefonoActual,
   ) {
     final TextEditingController nombreController = TextEditingController(
       text: nombreActual,
     );
     final TextEditingController limiteController = TextEditingController(
       text: limiteActual.toString(),
+    );
+    final TextEditingController telefonoController = TextEditingController(
+      text: telefonoActual,
     );
 
     showDialog(
@@ -385,12 +435,29 @@ class ProfileScreen extends StatelessWidget {
                   labelText: 'Nombre a mostrar',
                   labelStyle: TextStyle(color: textMuted),
                   enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: textMuted.withOpacity(0.5)),
+                    borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5)),
                   ),
                   focusedBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: primaryColor),
                   ),
                   prefixIcon: Icon(Icons.person_outline, color: textMuted),
+                ),
+              ),
+              const SizedBox(height: 20),
+              TextField(
+                controller: telefonoController,
+                style: TextStyle(color: textMain),
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Teléfono',
+                  labelStyle: TextStyle(color: textMuted),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: primaryColor),
+                  ),
+                  prefixIcon: Icon(Icons.phone_outlined, color: textMuted),
                 ),
               ),
               const SizedBox(height: 20),
@@ -403,7 +470,7 @@ class ProfileScreen extends StatelessWidget {
                   labelText: 'Límite Mensual (\$)',
                   labelStyle: TextStyle(color: textMuted),
                   enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: textMuted.withOpacity(0.5)),
+                    borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5)),
                   ),
                   focusedBorder: UnderlineInputBorder(
                     borderSide: BorderSide(color: primaryColor),
@@ -429,15 +496,14 @@ class ProfileScreen extends StatelessWidget {
                 final nuevoNombre = nombreController.text.trim();
                 final nuevoLimite =
                     int.tryParse(limiteController.text.trim()) ?? limiteActual;
+                final nuevoTelefono = telefonoController.text.trim();
 
-                // Actualizar en Firebase la tabla de "usuarios"
-                await FirebaseFirestore.instance
-                    .collection('usuarios')
-                    .doc(uid)
-                    .update({
-                      'nombre_mostrar': nuevoNombre,
-                      'limite_presupuesto_mensual': nuevoLimite,
-                    });
+                // Actualizar en Supabase la tabla de "usuarios"
+                await Supabase.instance.client.from('usuarios').update({
+                  'nombre_mostrar': nuevoNombre,
+                  'limite_presupuesto_mensual': nuevoLimite,
+                  'telefono': nuevoTelefono,
+                }).eq('id', uid);
 
                 if (context.mounted) {
                   Navigator.pop(context); // Cerrar el diálogo cuando termine
@@ -466,7 +532,7 @@ class ProfileScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: navBgColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -512,7 +578,7 @@ class ProfileScreen extends StatelessWidget {
         decoration: BoxDecoration(
           color: navBgColor,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
         child: Row(
           children: [

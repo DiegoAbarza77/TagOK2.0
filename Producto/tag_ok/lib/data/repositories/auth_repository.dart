@@ -1,50 +1,40 @@
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../models/usuario_model.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthRepository {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final SupabaseClient _client = Supabase.instance.client;
 
   // Stream para escuchar cambios en el estado de autenticación
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  Stream<AuthState> get authStateChanges => _client.auth.onAuthStateChange;
+
+  User? get currentUser => _client.auth.currentUser;
 
   // Iniciar Sesión
-  Future<UserCredential> signInWithEmailAndPassword(String email, String password) async {
+  Future<AuthResponse> signInWithEmailAndPassword(String email, String password) async {
     try {
-      return await _auth.signInWithEmailAndPassword(email: email, password: password);
+      return await _client.auth.signInWithPassword(email: email, password: password);
     } catch (e) {
       throw _handleAuthException(e);
     }
   }
 
-  // Registrarse (Crear cuenta en Auth y Documento en Firestore)
-  Future<UserCredential> signUpWithEmailAndPassword(String email, String password) async {
+  // Registrarse. La fila en la tabla "usuarios" la crea automáticamente el
+  // trigger on_auth_user_created (ver supabase/migrations/0002_profile_trigger.sql)
+  // a partir de los metadatos que se pasan aquí.
+  Future<AuthResponse> signUpWithEmailAndPassword(
+    String email,
+    String password, {
+    String? nombre,
+    String? telefono,
+  }) async {
     try {
-      UserCredential userCredential = await _auth.createUserWithEmailAndPassword(
+      return await _client.auth.signUp(
         email: email,
         password: password,
+        data: {
+          if (nombre != null) 'nombre_mostrar': nombre,
+          if (telefono != null) 'telefono': telefono,
+        },
       );
-
-      User? user = userCredential.user;
-
-      if (user != null) {
-        // Crear el modelo de usuario para Firestore
-        final nuevoUsuario = UsuarioModel(
-          uid: user.uid,
-          email: email,
-          fechaCreacion: DateTime.now(),
-          limitePresupuestoMensual: 50000.0, // Un límite por defecto razonable
-        );
-
-        // Guardar en la colección 'usuarios'
-        await _firestore
-            .collection('usuarios')
-            .doc(user.uid)
-            .set(nuevoUsuario.toJson());
-      }
-
-      return userCredential;
     } catch (e) {
       throw _handleAuthException(e);
     }
@@ -52,23 +42,31 @@ class AuthRepository {
 
   // Cerrar Sesión
   Future<void> signOut() async {
-    await _auth.signOut();
+    await _client.auth.signOut();
+  }
+
+  // Enviar correo de recuperación de contraseña
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _client.auth.resetPasswordForEmail(email);
+    } catch (e) {
+      throw _handleAuthException(e);
+    }
   }
 
   // Manejador de errores amigable
   String _handleAuthException(dynamic e) {
-    if (e is FirebaseAuthException) {
+    if (e is AuthException) {
       switch (e.code) {
-        case 'user-not-found':
-          return 'No se encontró ningún usuario con ese correo.';
-        case 'wrong-password':
-          return 'La contraseña es incorrecta.';
-        case 'email-already-in-use':
+        case 'invalid_credentials':
+          return 'El correo o la contraseña son incorrectos.';
+        case 'user_already_exists':
+        case 'email_exists':
           return 'El correo ya está registrado.';
-        case 'invalid-email':
-          return 'El formato del correo es inválido.';
-        case 'weak-password':
+        case 'weak_password':
           return 'La contraseña es muy débil (mínimo 6 caracteres).';
+        case 'email_address_invalid':
+          return 'El formato del correo es inválido.';
         default:
           return 'Ocurrió un error de autenticación: ${e.message}';
       }

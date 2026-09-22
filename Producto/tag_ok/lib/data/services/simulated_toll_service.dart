@@ -328,7 +328,7 @@ class SimulatedTollService {
       final int mins = minutes % 60;
       return '${hours}h ${mins}m';
     }
-    return '${minutes} min';
+    return '$minutes min';
   }
 
   double _calculateDistance(LatLng p1, LatLng p2) {

@@ -1,5 +1,4 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminOverview {
   const AdminOverview({
@@ -7,14 +6,12 @@ class AdminOverview {
     required this.vehicles,
     required this.porticos,
     required this.tariffs,
-    required this.alerts,
   });
 
   final int users;
   final int vehicles;
   final int porticos;
   final int tariffs;
-  final int alerts;
 }
 
 class ReportMetrics {
@@ -35,11 +32,11 @@ class ReportMetrics {
   final Map<String, double> costByHighway;
 }
 
-class AdminFirestoreService {
-  AdminFirestoreService({FirebaseFirestore? firestore})
-    : _firestore = firestore ?? FirebaseFirestore.instance;
+class AdminSupabaseService {
+  AdminSupabaseService({SupabaseClient? client})
+    : _client = client ?? Supabase.instance.client;
 
-  final FirebaseFirestore _firestore;
+  final SupabaseClient _client;
 
   String _classifyHighway(String tollName) {
     final name = tollName.toLowerCase();
@@ -107,13 +104,15 @@ class AdminFirestoreService {
   }
 
   Future<ReportMetrics> fetchReportMetrics() async {
-    final usersSnapshot = await _firestore.collection('usuarios').get();
-    final vehiclesSnapshot = await _firestore.collection('vehiculos').get();
-    final tripsSnapshot = await _firestore.collectionGroup('trips').get();
+    final users = await _client.from('usuarios').select('id').count(CountOption.exact);
+    final vehicles = await _client.from('vehiculos').select('id').count(CountOption.exact);
+    // RLS (is_admin() OR usuario_id = auth.uid()) le da al admin visibilidad
+    // de los viajes de todos los usuarios; reemplaza al collectionGroup('trips') de Firestore.
+    final tripsRows = await _client.from('trips').select('total_cost, tolls');
 
-    final int totalUsers = usersSnapshot.size;
-    final int totalVehicles = vehiclesSnapshot.size;
-    final int totalTrips = tripsSnapshot.size;
+    final int totalUsers = users.count;
+    final int totalVehicles = vehicles.count;
+    final int totalTrips = tripsRows.length;
 
     double totalTollCost = 0.0;
     final Map<String, double> costByHighway = {
@@ -125,13 +124,11 @@ class AdminFirestoreService {
       'Conexión / Otras': 0.0,
     };
 
-    for (var doc in tripsSnapshot.docs) {
-      final data = doc.data();
-      final double tripCost =
-          double.tryParse(data['totalCost']?.toString() ?? '0') ?? 0.0;
+    for (var row in tripsRows) {
+      final double tripCost = (row['total_cost'] as num?)?.toDouble() ?? 0.0;
       totalTollCost += tripCost;
 
-      final List<dynamic> tollsList = data['tolls'] as List<dynamic>? ?? [];
+      final List<dynamic> tollsList = row['tolls'] as List<dynamic>? ?? [];
       for (var tollRaw in tollsList) {
         if (tollRaw is Map) {
           final String tollName = (tollRaw['name'] ?? '').toString();
@@ -169,7 +166,6 @@ class AdminFirestoreService {
       _count('vehiculos'),
       _count('porticos'),
       _count('tarifas'),
-      _count('alertas'),
     ]);
 
     return AdminOverview(
@@ -177,37 +173,26 @@ class AdminFirestoreService {
       vehicles: results[1],
       porticos: results[2],
       tariffs: results[3],
-      alerts: results[4],
     );
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamUsers() {
-    return _firestore.collection('usuarios').snapshots();
+  Stream<List<Map<String, dynamic>>> streamUsers() {
+    return _client.from('usuarios').stream(primaryKey: ['id']);
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamPorticos() {
-    return _firestore.collection('porticos').snapshots();
+  Stream<List<Map<String, dynamic>>> streamPorticos() {
+    return _client.from('porticos').stream(primaryKey: ['id']);
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamTariffs() {
-    return _firestore
-        .collection('tarifas')
-        .orderBy('fecha_actualizacion', descending: true)
-        .snapshots();
+  Stream<List<Map<String, dynamic>>> streamTariffs() {
+    return _client
+        .from('tarifas')
+        .stream(primaryKey: ['id'])
+        .order('fecha_actualizacion', ascending: false);
   }
 
-  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> streamUserTrips() {
-    return _firestore.collectionGroup('trips').snapshots().map((snapshot) {
-      final list = List<QueryDocumentSnapshot<Map<String, dynamic>>>.from(
-        snapshot.docs,
-      );
-      list.sort((a, b) {
-        final aDate = a.data()['date']?.toString() ?? '';
-        final bDate = b.data()['date']?.toString() ?? '';
-        return bDate.compareTo(aDate);
-      });
-      return list;
-    });
+  Stream<List<Map<String, dynamic>>> streamUserTrips() {
+    return _client.from('trips').stream(primaryKey: ['id']).order('date', ascending: false);
   }
 
   Future<void> logAction({
@@ -215,40 +200,46 @@ class AdminFirestoreService {
     required String target,
     required String details,
   }) async {
-    final String adminEmail =
-        FirebaseAuth.instance.currentUser?.email ?? 'admin_desconocido';
-    await _firestore.collection('auditoria').add({
-      'fecha': FieldValue.serverTimestamp(),
-      'adminEmail': adminEmail,
+    final String adminEmail = _client.auth.currentUser?.email ?? 'admin_desconocido';
+    await _client.from('auditoria').insert({
+      'admin_email': adminEmail,
       'action': action,
       'target': target,
       'details': details,
     });
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamAuditLogs() {
-    return _firestore
-        .collection('auditoria')
-        .orderBy('fecha', descending: true)
-        .snapshots();
+  Stream<List<Map<String, dynamic>>> streamAuditLogs() {
+    return _client
+        .from('auditoria')
+        .stream(primaryKey: ['id'])
+        .order('fecha', ascending: false);
   }
 
-  Stream<QuerySnapshot<Map<String, dynamic>>> streamAdministradores() {
-    return _firestore.collection('administradores').snapshots();
+  Stream<List<Map<String, dynamic>>> streamAdministradores() {
+    return _client.from('administradores').stream(primaryKey: ['id']);
   }
 
   Future<void> updateAdminRole(String docId, String role) async {
-    await _firestore.collection('administradores').doc(docId).update({
-      'rol': role,
-    });
+    await _client.from('administradores').update({'rol': role}).eq('id', docId);
   }
 
+  /// Borra al administrador y su cuenta de Auth completa a través de la
+  /// Edge Function "delete-user" (requiere la service-role key en el
+  /// servidor, no disponible en el cliente Flutter). Evita dejar cuentas de
+  /// Auth huérfanas, a diferencia del borrado directo de Firestore de antes.
   Future<void> deleteAdmin(String docId) async {
-    await _firestore.collection('administradores').doc(docId).delete();
+    final response = await _client.functions.invoke(
+      'delete-user',
+      body: {'userId': docId},
+    );
+    if (response.status != 200) {
+      throw Exception('No se pudo eliminar el administrador: ${response.data}');
+    }
   }
 
-  Future<int> _count(String collection) async {
-    final snapshot = await _firestore.collection(collection).get();
-    return snapshot.size;
+  Future<int> _count(String table) async {
+    final response = await _client.from(table).select('id').count(CountOption.exact);
+    return response.count;
   }
 }

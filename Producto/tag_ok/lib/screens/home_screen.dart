@@ -4,7 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -170,6 +170,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initNotifications() async {
+    if (kIsWeb) {
+      debugPrint('TAG_OK_NOTIFICATION: Notificaciones locales omitidas en Web.');
+      return;
+    }
+    
     try {
       const AndroidInitializationSettings initializationSettingsAndroid =
           AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -605,6 +610,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _showLocalNotification(TollData toll) async {
+    if (kIsWeb) return;
+    
     try {
       final AndroidNotificationDetails androidPlatformChannelSpecifics =
           AndroidNotificationDetails(
@@ -837,7 +844,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         if (_isNavigating && _currentPosition != null) _currentPosition!,
                       ],
                       strokeWidth: 6.0,
-                      color: Colors.grey.withOpacity(0.6),
+                      color: Colors.grey.withValues(alpha: 0.6),
                     ),
                   // Tramo restante (Azul)
                   if (_remainingPolyline.isNotEmpty)
@@ -884,7 +891,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         color: toll.isCrossed ? const Color(0xFF10B981) : Colors.white,
                         shape: BoxShape.circle,
                         boxShadow: [
-                          BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2))
+                          BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4, offset: const Offset(0, 2))
                         ],
                       ),
                       child: Icon(
@@ -1052,7 +1059,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               if (_currentRoute != null) {
                                 final historyService = HistoryService();
                                 final trip = TripHistory(
-                                  id: '', // Se genera en Firestore
+                                  id: '', // Se genera en la base de datos
                                   date: DateTime.now(),
                                   totalCost: _currentRoute!.tolls.where((t) => t.isCrossed).fold(0.0, (sum, t) => sum + t.cost),
                                   distanceKm: _currentRoute!.distanceKm,
@@ -1266,7 +1273,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
+                color: Colors.white.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
@@ -1509,7 +1516,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _buildTopFloatingHeader() {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
     return Positioned(
       top: 20,
       left: 16,
@@ -1521,7 +1528,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
             decoration: BoxDecoration(
-              color: navBgColor.withOpacity(0.7),
+              color: navBgColor.withValues(alpha: 0.7),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: Colors.white10),
             ),
@@ -1570,7 +1577,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: navBgColor.withOpacity(0.8),
+              color: navBgColor.withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white10),
             ),
@@ -1579,7 +1586,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: primaryColor.withOpacity(0.2),
+                    color: primaryColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(Icons.directions_car, color: Color(0xFF4F46E5), size: 20),
@@ -1625,8 +1632,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             
             // Lógica de colores sincronizada
             Color progressColor = const Color(0xFF4F46E5); // Violeta
-            if (progress >= 1.0) progressColor = Colors.redAccent;
-            else if (progress >= 0.9) progressColor = Colors.orangeAccent;
+            if (progress >= 1.0) {
+              progressColor = Colors.redAccent;
+            } else if (progress >= 0.9) progressColor = Colors.orangeAccent;
             else if (progress >= 0.75) progressColor = Colors.yellowAccent;
             else if (progress >= 0.5) progressColor = const Color(0xFF10B981);
 

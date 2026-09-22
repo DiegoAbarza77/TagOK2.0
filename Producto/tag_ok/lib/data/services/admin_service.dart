@@ -1,40 +1,34 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../mock/tolls_database.dart';
-import '../models/route_model.dart';
 
 class AdminService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final SupabaseClient _client = Supabase.instance.client;
 
-  Future<void> uploadTollsToFirebase() async {
+  Future<void> uploadTollsToSupabase() async {
     try {
       final tolls = TollsDatabase.santiagoTolls;
-      final collection = _firestore.collection('porticos');
 
       // Verificamos si ya hay datos para no duplicar si el usuario re-ejecuta
-      final existing = await collection.limit(1).get();
-      if (existing.docs.isNotEmpty) {
+      final existing = await _client.from('porticos').select('id').limit(1);
+      if (existing.isNotEmpty) {
         print('TAG_OK_ADMIN: La colección "porticos" ya tiene datos. Abortando para evitar duplicados.');
         return;
       }
 
       print('TAG_OK_ADMIN: Iniciando subida de ${tolls.length} pórticos...');
-      
-      int count = 0;
-      for (var toll in tolls) {
-        await collection.add({
-          'nombre': toll.name,
-          'lat': toll.location.latitude,
-          'lng': toll.location.longitude,
-          'costo': toll.cost,
-          'costoPunta': toll.costPunta,
-          'costoSaturacion': toll.costSaturacion,
-          'sentido': toll.direction,
-          'fecha_actualizacion': FieldValue.serverTimestamp(),
-        });
-        count++;
-        print('TAG_OK_ADMIN: [$count/${tolls.length}] Subido: ${toll.name}');
-      }
-      print('TAG_OK_ADMIN: ¡Subida completada con éxito!');
+
+      final rows = tolls.map((toll) => {
+            'nombre': toll.name,
+            'lat': toll.location.latitude,
+            'lng': toll.location.longitude,
+            'costo': toll.cost,
+            'costo_punta': toll.costPunta,
+            'costo_saturacion': toll.costSaturacion,
+            'sentido': toll.direction,
+          }).toList();
+
+      await _client.from('porticos').insert(rows);
+      print('TAG_OK_ADMIN: ¡Subida completada con éxito! (${rows.length} pórticos)');
     } catch (e) {
       print('TAG_OK_ADMIN: ERROR CRÍTICO: $e');
     }

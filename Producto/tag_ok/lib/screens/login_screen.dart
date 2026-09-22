@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../presentation/providers/auth_provider.dart';
 import 'home_screen.dart';
@@ -21,14 +19,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final Color inputBg = const Color(0x990F172A);
   final Color surfaceBorder = const Color(0x1AFFFFFF);
 
+  final TextEditingController _nombreController = TextEditingController();
+  final TextEditingController _telefonoController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
-  
+
   bool _isLogin = true; // Para alternar entre Iniciar Sesión y Registrarse
 
   @override
   void dispose() {
+    _nombreController.dispose();
+    _telefonoController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
@@ -47,7 +49,22 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
 
     if (!_isLogin) {
+      final nombre = _nombreController.text.trim();
+      final telefono = _telefonoController.text.trim();
       final confirmPassword = _confirmPasswordController.text.trim();
+
+      if (nombre.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Por favor, ingresa tu nombre.')),
+        );
+        return;
+      }
+      if (telefono.isNotEmpty && telefono.replaceAll(RegExp(r'[\s\-]'), '').length < 8) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El teléfono ingresado no parece válido.')),
+        );
+        return;
+      }
       if (confirmPassword.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Por favor, confirma tu contraseña.')),
@@ -66,7 +83,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     if (_isLogin) {
       authNotifier.signIn(email, password);
     } else {
-      authNotifier.signUp(email, password);
+      final nombre = _nombreController.text.trim();
+      final telefono = _telefonoController.text.trim();
+      authNotifier.signUp(
+        email,
+        password,
+        nombre: nombre,
+        telefono: telefono.isEmpty ? null : telefono,
+      );
     }
   }
 
@@ -145,6 +169,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 40),
+
+                if (!_isLogin) ...[
+                  _buildTextField(
+                    controller: _nombreController,
+                    hintText: 'Nombre completo',
+                    icon: Icons.person_outline,
+                    keyboardType: TextInputType.name,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildTextField(
+                    controller: _telefonoController,
+                    hintText: 'Teléfono (opcional)',
+                    icon: Icons.phone_outlined,
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 _buildTextField(
                   controller: _emailController,
@@ -267,6 +308,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     required String hintText,
     required IconData icon,
     bool obscureText = false,
+    TextInputType? keyboardType,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -278,7 +320,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         controller: controller,
         obscureText: obscureText,
         style: TextStyle(color: textMain),
-        keyboardType: obscureText ? TextInputType.text : TextInputType.emailAddress,
+        keyboardType: keyboardType ?? (obscureText ? TextInputType.text : TextInputType.emailAddress),
         decoration: InputDecoration(
           hintText: hintText,
           hintStyle: TextStyle(color: textMuted.withValues(alpha: 0.7)),
@@ -333,58 +375,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             onPressed: () async {
               final email = resetEmailController.text.trim();
               if (email.isEmpty) return;
-              
-              Navigator.pop(dialogContext); // Cerrar el diálogo
-              
-              // Validar contra Firestore para verificar si el correo está registrado
-              bool emailExists = true;
-              try {
-                final querySnapshot = await FirebaseFirestore.instance
-                    .collection('usuarios')
-                    .where('email', isEqualTo: email)
-                    .limit(1)
-                    .get();
-                if (querySnapshot.docs.isEmpty) {
-                  emailExists = false;
-                }
-              } catch (e) {
-                // Si falla por reglas de seguridad u otra razón, permitimos que continúe con FirebaseAuth
-                debugPrint('No se pudo verificar el correo en Firestore: $e');
-              }
 
-              if (!emailExists) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Error: El correo electrónico ingresado no está registrado.'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-                return;
-              }
-              
+              Navigator.pop(dialogContext); // Cerrar el diálogo
+
+              // Supabase no revela si el correo existe o no (por diseño, evita
+              // filtrar qué correos están registrados) -- siempre mostramos el
+              // mismo mensaje genérico de éxito.
               try {
-                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Correo de recuperación enviado a $email'), backgroundColor: Colors.green),
-                  );
-                }
+                await ref.read(authRepositoryProvider).sendPasswordResetEmail(email);
               } catch (e) {
-                if (mounted) {
-                  String errorMessage = 'No se pudo enviar el correo de recuperación. Inténtalo más tarde.';
-                  if (e is FirebaseAuthException) {
-                    if (e.code == 'user-not-found') {
-                      errorMessage = 'El correo electrónico ingresado no está registrado.';
-                    } else if (e.code == 'invalid-email') {
-                      errorMessage = 'El correo electrónico ingresado no es válido.';
-                    }
-                  }
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error: $errorMessage'), backgroundColor: Colors.red),
-                  );
-                }
+                debugPrint('Error al enviar correo de recuperación: $e');
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Si $email está registrado, recibirás un correo de recuperación en breve.'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
               }
             },
             child: const Text('Enviar Enlace', style: TextStyle(color: Colors.white)),

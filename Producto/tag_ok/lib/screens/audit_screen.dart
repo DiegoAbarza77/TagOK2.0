@@ -9,8 +9,7 @@ import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:excel/excel.dart' hide Border, TextSpan;
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/trip_history.dart';
 import '../data/services/history_service.dart';
 import '../data/demo_data.dart';
@@ -31,7 +30,7 @@ class _AuditScreenState extends State<AuditScreen> {
   // Subpestaña activa (0: Consumo e Historial, 1: Auditoría de Boletas)
   int _activeSubTab = 0;
   bool _isExtracting = false;
-  bool _useAI = true;
+  final bool _useAI = true;
 
   // Variables de Filtro (Subpestaña 1)
   String _selectedVehicle = 'Todos';
@@ -205,34 +204,20 @@ class _AuditScreenState extends State<AuditScreen> {
     });
   }
 
-  // --- STREAMS Y ACCIONES FIRESTORE ---
+  // --- STREAMS Y ACCIONES DE BASE DE DATOS ---
 
   Stream<List<Map<String, dynamic>>> _getAuditedInvoices() {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    return FirebaseFirestore.instance
-        .collection('usuarios')
-        .doc(userId)
-        .collection('audited_invoices')
-        .orderBy('uploadDate', descending: true)
-        .snapshots()
-        .map((snapshot) {
-      return snapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        return data;
-      }).toList();
-    });
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    return Supabase.instance.client
+        .from('audited_invoices')
+        .stream(primaryKey: ['id'])
+        .eq('usuario_id', userId)
+        .order('upload_date', ascending: false);
   }
 
   Future<void> _deleteAuditedInvoice(String docId) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    await FirebaseFirestore.instance
-        .collection('usuarios')
-        .doc(userId)
-        .collection('audited_invoices')
-        .doc(docId)
-        .delete();
-        
+    await Supabase.instance.client.from('audited_invoices').delete().eq('id', docId);
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Auditoría eliminada del historial')),
@@ -243,41 +228,34 @@ class _AuditScreenState extends State<AuditScreen> {
   // --- GENERADOR DEMO JHGK50 (SEED DATABASE) ---
 
   Future<void> _generateDemoTrips() async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    final firestore = FirebaseFirestore.instance;
-    final tripsCollection = firestore.collection('usuarios').doc(userId).collection('trips');
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final client = Supabase.instance.client;
 
     setState(() => _isExtracting = true);
 
     try {
-      // 1. Borrar viajes demo anteriores de JHGK50 en un batch
-      final query = await tripsCollection.where('vehicleName', isEqualTo: 'Hyundai (JHGK50)').get();
-      if (query.docs.isNotEmpty) {
-        final deleteBatch = firestore.batch();
-        for (var doc in query.docs) {
-          deleteBatch.delete(doc.reference);
-        }
-        await deleteBatch.commit();
-      }
+      // 1. Borrar viajes demo anteriores de JHGK50
+      await client
+          .from('trips')
+          .delete()
+          .eq('usuario_id', userId)
+          .eq('vehicle_name', 'Hyundai (JHGK50)');
 
-      // 2. Insertar todos los viajes estáticos de prueba (40 viajes, 239 peajes) en un batch
-      final insertBatch = firestore.batch();
-      for (var trip in staticDemoTrips) {
-        final docRef = tripsCollection.doc();
-        insertBatch.set(docRef, {
-          'date': trip['date'],
-          'totalCost': (trip['totalCost'] as num).toDouble(),
-          'distanceKm': (trip['distanceKm'] as num).toDouble(),
-          'duration': trip['duration'],
-          'vehicleName': trip['vehicleName'],
-          'tolls': (trip['tolls'] as List).map((t) => {
-            'name': t['name'],
-            'cost': (t['cost'] as num).toDouble(),
-            'timestamp': t['timestamp'],
-          }).toList(),
-        });
-      }
-      await insertBatch.commit();
+      // 2. Insertar todos los viajes estáticos de prueba (40 viajes, 239 peajes) de una vez
+      final rows = staticDemoTrips.map((trip) => {
+        'usuario_id': userId,
+        'date': trip['date'],
+        'total_cost': (trip['totalCost'] as num).toDouble(),
+        'distance_km': (trip['distanceKm'] as num).toDouble(),
+        'duration': trip['duration'],
+        'vehicle_name': trip['vehicleName'],
+        'tolls': (trip['tolls'] as List).map((t) => {
+          'name': t['name'],
+          'cost': (t['cost'] as num).toDouble(),
+          'timestamp': t['timestamp'],
+        }).toList(),
+      }).toList();
+      await client.from('trips').insert(rows);
 
       setState(() => _isExtracting = false);
 
@@ -430,19 +408,15 @@ class _AuditScreenState extends State<AuditScreen> {
     bool withDiscrepancies,
     String concessionaire,
   ) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    final firestore = FirebaseFirestore.instance;
-    final tripsCollection = firestore.collection('usuarios').doc(userId).collection('trips');
+    final userId = Supabase.instance.client.auth.currentUser!.id;
+    final client = Supabase.instance.client;
 
-    // 1. Borrar viajes anteriores de esta patente en un batch
-    final query = await tripsCollection.where('vehicleName', isEqualTo: 'Hyundai ($patent)').get();
-    if (query.docs.isNotEmpty) {
-      final deleteBatch = firestore.batch();
-      for (var doc in query.docs) {
-        deleteBatch.delete(doc.reference);
-      }
-      await deleteBatch.commit();
-    }
+    // 1. Borrar viajes anteriores de esta patente
+    await client
+        .from('trips')
+        .delete()
+        .eq('usuario_id', userId)
+        .eq('vehicle_name', 'Hyundai ($patent)');
 
     // Filtrar cruces si es con discrepancias (omitir 1 de cada 8 cruces para probar el sistema de alertas)
     final List<Map<String, dynamic>> crossingsToSimulate = [];
@@ -489,11 +463,12 @@ class _AuditScreenState extends State<AuditScreen> {
           } else {
             final totalCost = currentTolls.fold(0.0, (acc, t) => acc + (t['cost'] as double));
             tripsToInsert.add({
+              'usuario_id': userId,
               'date': firstTime.toIso8601String(),
-              'totalCost': totalCost,
-              'distanceKm': currentTolls.length * 4.5,
+              'total_cost': totalCost,
+              'distance_km': currentTolls.length * 4.5,
               'duration': '${currentTolls.length * 5} min',
-              'vehicleName': 'Hyundai ($patent)',
+              'vehicle_name': 'Hyundai ($patent)',
               'tolls': List.from(currentTolls),
             });
 
@@ -510,24 +485,20 @@ class _AuditScreenState extends State<AuditScreen> {
       if (currentTolls.isNotEmpty && firstTime != null) {
         final totalCost = currentTolls.fold(0.0, (acc, t) => acc + (t['cost'] as double));
         tripsToInsert.add({
+          'usuario_id': userId,
           'date': firstTime.toIso8601String(),
-          'totalCost': totalCost,
-          'distanceKm': currentTolls.length * 4.5,
+          'total_cost': totalCost,
+          'distance_km': currentTolls.length * 4.5,
           'duration': '${currentTolls.length * 5} min',
-          'vehicleName': 'Hyundai ($patent)',
+          'vehicle_name': 'Hyundai ($patent)',
           'tolls': List.from(currentTolls),
         });
       }
     }
 
-    // 2. Insertar todos los viajes en un batch
+    // 2. Insertar todos los viajes de una vez
     if (tripsToInsert.isNotEmpty) {
-      final insertBatch = firestore.batch();
-      for (var tripData in tripsToInsert) {
-        final docRef = tripsCollection.doc();
-        insertBatch.set(docRef, tripData);
-      }
-      await insertBatch.commit();
+      await client.from('trips').insert(tripsToInsert);
     }
   }
 
@@ -591,7 +562,10 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
     }
   }
 
-  Future<void> _runAiAudit({
+  /// Ejecuta la conciliación (local + IA si hace falta) y devuelve el
+  /// resultado calculado SIN guardarlo. El guardado real ocurre solo si el
+  /// usuario confirma en la pantalla de revisión (_mostrarRevisionAuditoria).
+  Future<Map<String, dynamic>> _runAiAudit({
     required List<Map<String, dynamic>> extractedCrossings,
     required List<TripHistory> trips,
     required String patent,
@@ -758,27 +732,21 @@ Instrucciones para redactar el "aiReport":
       }
     }
 
-    // Persistir en Firestore
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-    final firestore = FirebaseFirestore.instance;
-
-    await firestore
-        .collection('usuarios')
-        .doc(userId)
-        .collection('audited_invoices')
-        .add({
+    // Devuelve el resultado calculado; el guardado ocurre en
+    // _mostrarRevisionAuditoria, solo si el usuario confirma.
+    return {
       'concessionaire': concessionaire,
       'period': period,
       'patent': patent,
-      'totalBilled': totalBilled,
-      'totalMatched': totalMatched,
+      'total_billed': totalBilled,
+      'total_matched': totalMatched,
       'status': finalStatus,
-      'reconciliationRate': reconciliationRate,
-      'uploadDate': DateTime.now().toIso8601String(),
+      'reconciliation_rate': reconciliationRate,
+      'upload_date': DateTime.now().toIso8601String(),
       'details': auditedDetails,
-      'aiReport': aiReport,
-      'auditedBy': 'Gemini 2.5 Flash',
-    });
+      'ai_report': aiReport,
+      'audited_by': 'Gemini 2.5 Flash',
+    };
   }
 
   Future<void> _pickAndAuditInvoice() async {
@@ -861,8 +829,9 @@ Instrucciones para redactar el "aiReport":
 
             for (int i = 0; i < headerRow.length; i++) {
               final val = headerRow[i]?.value?.toString().toLowerCase().trim() ?? '';
-              if (val.contains('patente')) idxPatent = i;
-              else if (val.contains('fecha')) idxDate = i;
+              if (val.contains('patente')) {
+                idxPatent = i;
+              } else if (val.contains('fecha')) idxDate = i;
               else if (val.contains('hora')) idxTime = i;
               else if (val.contains('portico') || val.contains('pórtico')) idxPortico = i;
               else if (val.contains('concesionaria')) idxConcession = i;
@@ -1071,7 +1040,7 @@ Instrucciones para redactar el "aiReport":
             for (var table in excel.tables.keys) {
               final sheet = excel.tables[table]!;
               for (var row in sheet.rows) {
-                rawText += row.map((c) => c?.value?.toString() ?? '').join(' ') + '\\n';
+                rawText += '${row.map((c) => c?.value?.toString() ?? '').join(' ')}\\n';
               }
             }
           }
@@ -1091,22 +1060,22 @@ Instrucciones para redactar el "aiReport":
 
       // 1.5. AUDITAR DE MANERA REAL CON HISTORIAL GPS EXISTENTE
 
-      // 2. CONCILIACIÓN CON GPS EN FIRESTORE
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'anonymous';
-      final firestore = FirebaseFirestore.instance;
+      // 2. CONCILIACIÓN CON GPS
+      final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      final tripsSnapshot = await firestore
-          .collection('usuarios')
-          .doc(userId)
-          .collection('trips')
-          .get();
+      final tripsRows = await Supabase.instance.client
+          .from('trips')
+          .select()
+          .eq('usuario_id', userId);
 
-      final List<TripHistory> trips = tripsSnapshot.docs
-          .map((doc) => TripHistory.fromFirestore(doc))
+      final List<TripHistory> trips = tripsRows
+          .map((row) => TripHistory.fromJson(row))
           .toList();
 
+      Map<String, dynamic> resultado;
+
       if (_useAI) {
-        await _runAiAudit(
+        resultado = await _runAiAudit(
           extractedCrossings: extractedCrossings,
           trips: trips,
           patent: patent,
@@ -1172,40 +1141,30 @@ Instrucciones para redactar el "aiReport":
         }
 
         final double reconciliationRate = totalBilled > 0 ? (totalMatched / totalBilled) * 100 : 0.0;
-        final String finalStatus = reconciliationRate >= 100 
-            ? 'Conciliado' 
+        final String finalStatus = reconciliationRate >= 100
+            ? 'Conciliado'
             : (reconciliationRate > 0 ? 'Discrepancia Parcial' : 'Sin Registro');
 
-        // 4. PERSISTIR EN FIRESTORE
-        await firestore
-            .collection('usuarios')
-            .doc(userId)
-            .collection('audited_invoices')
-            .add({
+        resultado = {
           'concessionaire': concessionaire,
           'period': period,
           'patent': patent,
-          'totalBilled': totalBilled,
-          'totalMatched': totalMatched,
+          'total_billed': totalBilled,
+          'total_matched': totalMatched,
           'status': finalStatus,
-          'reconciliationRate': reconciliationRate,
-          'uploadDate': DateTime.now().toIso8601String(),
+          'reconciliation_rate': reconciliationRate,
+          'upload_date': DateTime.now().toIso8601String(),
           'details': auditedDetails,
-        });
+        };
       }
 
-      setState(() {
-        _isExtracting = false;
-        _activeSubTab = 1; // Ir a la subpestaña de auditorías automáticamente
-      });
+      setState(() => _isExtracting = false);
 
+      // Regla transversal: Manual + IA → Revisión → Confirmar → Guardar.
+      // No se persiste nada todavía; el usuario revisa el resultado y
+      // decide si guardarlo o descartarlo.
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_useAI ? 'Auditoría con IA guardada con éxito' : 'Auditoría clásica guardada con éxito'),
-            backgroundColor: const Color(0xFF10B981),
-          ),
-        );
+        await _mostrarRevisionAuditoria(resultado, esAuditoriaIA: _useAI);
       }
 
     } catch (e) {
@@ -1236,16 +1195,223 @@ Instrucciones para redactar el "aiReport":
     }
   }
 
+  /// Paso de Revisión y Confirmación (regla transversal: Manual + IA →
+  /// Revisión → Confirmar → Guardar). Muestra el resultado calculado en un
+  /// formulario editable; nada se guarda en la base de datos hasta que el
+  /// usuario presiona "Confirmar y Guardar".
+  Future<void> _mostrarRevisionAuditoria(
+    Map<String, dynamic> resultado, {
+    required bool esAuditoriaIA,
+  }) async {
+    final concessionaireCtrl = TextEditingController(text: resultado['concessionaire'] ?? '');
+    final patentCtrl = TextEditingController(text: resultado['patent'] ?? '');
+    final periodCtrl = TextEditingController(text: resultado['period'] ?? '');
+    final aiReportCtrl = TextEditingController(text: resultado['ai_report'] ?? '');
+
+    final double totalBilled = (resultado['total_billed'] as num).toDouble();
+    final double totalMatched = (resultado['total_matched'] as num).toDouble();
+    final double reconciliationRate = (resultado['reconciliation_rate'] as num).toDouble();
+    final String status = resultado['status'] as String;
+    final int detalles = (resultado['details'] as List).length;
+    final int discrepancias = (resultado['details'] as List)
+        .where((d) => (d as Map)['status'] != 'Correcto')
+        .length;
+
+    bool guardando = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: surfaceColor,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  Icon(Icons.fact_check_outlined, color: primaryColor),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Revisar antes de guardar',
+                      style: TextStyle(color: textMain, fontSize: 17, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: SizedBox(
+                width: 420,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        esAuditoriaIA
+                            ? 'La IA extrajo y conciliró estos datos. Revísalos y corrígelos si algo no calza antes de guardar.'
+                            : 'Revisa los datos calculados antes de guardar.',
+                        style: TextStyle(color: textMuted, fontSize: 13),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: concessionaireCtrl,
+                        style: TextStyle(color: textMain),
+                        decoration: InputDecoration(
+                          labelText: 'Concesionaria',
+                          labelStyle: TextStyle(color: textMuted),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: patentCtrl,
+                        style: TextStyle(color: textMain),
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: InputDecoration(
+                          labelText: 'Patente',
+                          labelStyle: TextStyle(color: textMuted),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: periodCtrl,
+                        style: TextStyle(color: textMain),
+                        decoration: InputDecoration(
+                          labelText: 'Periodo',
+                          labelStyle: TextStyle(color: textMuted),
+                          enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                          focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: bgColor,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _filaResumen('Total facturado', '\$${totalBilled.toStringAsFixed(0)}', textMain, textMuted),
+                            _filaResumen('Total conciliado', '\$${totalMatched.toStringAsFixed(0)}', textMain, textMuted),
+                            _filaResumen('Tasa de conciliación', '${reconciliationRate.toStringAsFixed(1)}%', textMain, textMuted),
+                            _filaResumen('Estado', status, textMain, textMuted),
+                            _filaResumen('Tránsitos', '$detalles ($discrepancias con discrepancia)', textMain, textMuted),
+                          ],
+                        ),
+                      ),
+                      if (aiReportCtrl.text.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text('Informe', style: TextStyle(color: textMuted, fontSize: 12)),
+                        const SizedBox(height: 4),
+                        TextField(
+                          controller: aiReportCtrl,
+                          style: TextStyle(color: textMain, fontSize: 13),
+                          maxLines: 5,
+                          decoration: InputDecoration(
+                            filled: true,
+                            fillColor: bgColor,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            contentPadding: const EdgeInsets.all(10),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: guardando ? null : () => Navigator.pop(dialogContext),
+                  child: Text('Descartar', style: TextStyle(color: textMuted)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: guardando
+                      ? null
+                      : () async {
+                          setDialogState(() => guardando = true);
+                          try {
+                            final userId = Supabase.instance.client.auth.currentUser!.id;
+                            final registro = {
+                              ...resultado,
+                              'usuario_id': userId,
+                              'concessionaire': concessionaireCtrl.text.trim(),
+                              'patent': patentCtrl.text.trim(),
+                              'period': periodCtrl.text.trim(),
+                              if (aiReportCtrl.text.isNotEmpty) 'ai_report': aiReportCtrl.text.trim(),
+                            };
+                            await Supabase.instance.client.from('audited_invoices').insert(registro);
+
+                            if (dialogContext.mounted) Navigator.pop(dialogContext);
+                            if (mounted) {
+                              setState(() => _activeSubTab = 1);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(esAuditoriaIA ? 'Auditoría con IA guardada con éxito' : 'Auditoría clásica guardada con éxito'),
+                                  backgroundColor: const Color(0xFF10B981),
+                                ),
+                              );
+                            }
+                          } catch (e) {
+                            setDialogState(() => guardando = false);
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(content: Text('No se pudo guardar: $e'), backgroundColor: Colors.red),
+                              );
+                            }
+                          }
+                        },
+                  child: guardando
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Text('Confirmar y Guardar', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _filaResumen(String label, String value, Color textMain, Color textMuted) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(color: textMuted, fontSize: 13)),
+          Text(value, style: TextStyle(color: textMain, fontSize: 13, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
   Future<void> _exportInvoiceToExcel(Map<String, dynamic> invoice) async {
     try {
       final concessionaire = invoice['concessionaire'] ?? 'Autopista';
       final period = invoice['period'] ?? 'Periodo';
       final patent = invoice['patent'] ?? 'Patente';
-      final double totalBilled = (invoice['totalBilled'] as num?)?.toDouble() ?? 0.0;
-      final double totalMatched = (invoice['totalMatched'] as num?)?.toDouble() ?? 0.0;
-      final double reconciliationRate = (invoice['reconciliationRate'] as num?)?.toDouble() ?? 0.0;
+      final double totalBilled = (invoice['total_billed'] as num?)?.toDouble() ?? 0.0;
+      final double totalMatched = (invoice['total_matched'] as num?)?.toDouble() ?? 0.0;
+      final double reconciliationRate = (invoice['reconciliation_rate'] as num?)?.toDouble() ?? 0.0;
       final status = invoice['status'] ?? 'Desconocido';
-      final aiReport = invoice['aiReport'] ?? '';
+      final aiReport = invoice['ai_report'] ?? '';
       
       final detailsList = invoice['details'] as List?;
       final List<Map<String, dynamic>> details = detailsList != null
@@ -1837,13 +2003,13 @@ Instrucciones para redactar el "aiReport":
 
   // Renderiza una boleta mensual auditada
   Widget _buildAuditedInvoiceCard(Map<String, dynamic> invoice) {
-    final double billed = invoice['totalBilled'] ?? 0.0;
-    final double matched = invoice['totalMatched'] ?? 0.0;
-    final double rate = invoice['reconciliationRate'] ?? 0.0;
+    final double billed = ((invoice['total_billed'] ?? 0.0) as num).toDouble();
+    final double matched = ((invoice['total_matched'] ?? 0.0) as num).toDouble();
+    final double rate = ((invoice['reconciliation_rate'] ?? 0.0) as num).toDouble();
     final String status = invoice['status'] ?? 'Conciliado';
-    final String dateStr = invoice['uploadDate'] ?? '';
+    final String dateStr = invoice['upload_date'] ?? '';
     final String id = invoice['id'] ?? '';
-    final String? aiReport = invoice['aiReport'];
+    final String? aiReport = invoice['ai_report'];
 
     String formattedDate = '';
     if (dateStr.isNotEmpty) {

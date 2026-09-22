@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'main.dart'; // Importamos para poder navegar al AdminShell
 
 class AdminAuthGate extends StatelessWidget {
@@ -8,19 +7,20 @@ class AdminAuthGate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Escucha en tiempo real si hay una sesión iniciada en Firebase
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+    // Escucha en tiempo real si hay una sesión iniciada en Supabase
+    return StreamBuilder<AuthState>(
+      stream: Supabase.instance.client.auth.onAuthStateChange,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
+        final user = Supabase.instance.client.auth.currentUser;
         // Si no hay usuario logueado, mostrar pantalla de Login
-        if (!snapshot.hasData || snapshot.data == null) {
+        if (user == null) {
           return const LoginScreen();
         }
         // Si está logueado, pasar al validador de Rol Administrador
-        return AdminCheck(user: snapshot.data!);
+        return AdminCheck(user: user);
       },
     );
   }
@@ -37,7 +37,7 @@ class AdminCheck extends StatefulWidget {
 class _AdminCheckState extends State<AdminCheck> {
   bool _isLoading = true;
   bool _isAdmin = false;
-  String _role = 'super_admin';
+  String _role = 'operador';
 
   @override
   void initState() {
@@ -47,26 +47,28 @@ class _AdminCheckState extends State<AdminCheck> {
 
   Future<void> _checkAdmin() async {
     try {
-      // Va a buscar a la colección "administradores" el ID de este usuario
-      final doc = await FirebaseFirestore.instance.collection('administradores').doc(widget.user.uid).get();
-      if (doc.exists) {
-        final data = doc.data() ?? {};
-        final String role = (data['rol'] ?? data['role'] ?? 'super_admin').toString();
+      // Va a buscar a la tabla "administradores" el ID de este usuario
+      final row = await Supabase.instance.client
+          .from('administradores')
+          .select('rol')
+          .eq('id', widget.user.id)
+          .maybeSingle();
+      if (row != null) {
         setState(() {
-          _role = role;
+          _role = row['rol'] ?? 'operador';
           _isAdmin = true;
           _isLoading = false;
         });
       } else {
         // Si el usuario no existe en la tabla de admins, lo expulsa.
-        await FirebaseAuth.instance.signOut();
+        await Supabase.instance.client.auth.signOut();
         setState(() {
           _isAdmin = false;
           _isLoading = false;
         });
       }
     } catch (e) {
-      await FirebaseAuth.instance.signOut();
+      await Supabase.instance.client.auth.signOut();
       setState(() => _isLoading = false);
     }
   }
@@ -113,13 +115,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // Intentar ingresar. Si es correcto, el AdminAuthGate detectará el cambio y hará el resto.
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      await Supabase.instance.client.auth.signInWithPassword(
         email: _emailCtrl.text.trim(),
         password: _passwordCtrl.text.trim(),
       );
-    } on FirebaseAuthException catch (e) {
+    } on AuthException catch (e) {
       setState(() {
-        _error = e.message ?? 'Error al iniciar sesión.';
+        _error = e.message;
         _isLoading = false;
       });
     } catch (e) {

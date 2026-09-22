@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/repositories/auth_repository.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 // Proveedor global del Repositorio de Autenticación
 final authRepositoryProvider = Provider<AuthRepository>((ref) {
@@ -9,7 +9,7 @@ final authRepositoryProvider = Provider<AuthRepository>((ref) {
 
 // Proveedor para escuchar si el usuario está logueado o no (Stream)
 final authStateProvider = StreamProvider<User?>((ref) {
-  return ref.watch(authRepositoryProvider).authStateChanges;
+  return ref.watch(authRepositoryProvider).authStateChanges.map((state) => state.session?.user);
 });
 
 // Clase para manejar el estado visual del Login (Cargando, Error, Éxito)
@@ -45,10 +45,20 @@ class AuthNotifier extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> signUp(String email, String password) async {
+  Future<void> signUp(
+    String email,
+    String password, {
+    String? nombre,
+    String? telefono,
+  }) async {
     state = AuthState(isLoading: true);
     try {
-      await _authRepository.signUpWithEmailAndPassword(email, password);
+      await _authRepository.signUpWithEmailAndPassword(
+        email,
+        password,
+        nombre: nombre,
+        telefono: telefono,
+      );
       state = AuthState(isSuccess: true);
     } catch (e) {
       state = AuthState(error: e.toString());
@@ -57,6 +67,7 @@ class AuthNotifier extends StateNotifier<AuthState> {
 
   Future<void> signOut() async {
     await _authRepository.signOut();
+    state = AuthState(); // Resetear el estado
   }
 }
 

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../data/models/vehiculo_model.dart';
+import '../data/models/documento_vehiculo_model.dart';
+import '../data/services/vehiculo_documentos_service.dart';
+import 'documentos_vehiculo_screen.dart';
+import 'combustible_screen.dart';
 
 class VehiculosScreen extends StatefulWidget {
   const VehiculosScreen({super.key});
@@ -20,7 +24,14 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
 
   final TextEditingController _patenteController = TextEditingController();
   final TextEditingController _marcaController = TextEditingController();
+  final TextEditingController _modeloController = TextEditingController();
+  final TextEditingController _anioController = TextEditingController();
+  final TextEditingController _kilometrajeController = TextEditingController();
+  final TextEditingController _aliasController = TextEditingController();
   String _categoriaSeleccionada = 'AUTO';
+  String? _tipoCombustibleSeleccionado;
+
+  final VehiculoDocumentosService _documentosService = VehiculoDocumentosService();
 
   String _vehiculoPrincipalActual = '';
 
@@ -30,24 +41,39 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     _cargarVehiculoPrincipal();
   }
 
+  @override
+  void dispose() {
+    _patenteController.dispose();
+    _marcaController.dispose();
+    _modeloController.dispose();
+    _anioController.dispose();
+    _kilometrajeController.dispose();
+    _aliasController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargarVehiculoPrincipal() async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
-      final doc = await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).get();
-      if (doc.exists && doc.data()!.containsKey('vehiculo_principal_id')) {
+      final row = await Supabase.instance.client
+          .from('usuarios')
+          .select('vehiculo_principal_patente')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (row != null && row['vehiculo_principal_patente'] != null) {
         setState(() {
-          _vehiculoPrincipalActual = doc.data()!['vehiculo_principal_id'] ?? '';
+          _vehiculoPrincipalActual = row['vehiculo_principal_patente'] ?? '';
         });
       }
     }
   }
 
   Future<void> _setVehiculoPrincipal(String patente) async {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
     if (user != null) {
-      await FirebaseFirestore.instance.collection('usuarios').doc(user.uid).update({
-        'vehiculo_principal_id': patente,
-      });
+      await Supabase.instance.client.from('usuarios').update({
+        'vehiculo_principal_patente': patente,
+      }).eq('id', user.id);
       setState(() {
         _vehiculoPrincipalActual = patente;
       });
@@ -66,7 +92,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     final patente = _patenteController.text.trim().toUpperCase();
     final categoria = _categoriaSeleccionada;
     final marca = _marcaController.text.trim();
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
 
     if (patente.isEmpty || user == null) return false;
 
@@ -86,25 +112,27 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     }
 
     try {
-      // Intentamos guardarlo usando Reference. En la imagen de Firestore
-      // se nota que el id_usuario es una referencia al documento (no string).
-      final userRef = FirebaseFirestore.instance.collection('usuarios').doc(user.uid);
-
-      final now = DateTime.now();
-      final fechaIngreso = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year}';
-
-      await FirebaseFirestore.instance.collection('vehiculos').add({
+      await Supabase.instance.client.from('vehiculos').insert({
         'patente': patente,
         'categoria': categoria,
         'marca': marca.isNotEmpty ? marca : 'No especificada',
-        'fecha_ingreso': fechaIngreso,
-        'id_usuario': userRef, 
+        'modelo': _modeloController.text.trim().isEmpty ? null : _modeloController.text.trim(),
+        'anio': int.tryParse(_anioController.text.trim()),
+        'tipo_combustible': _tipoCombustibleSeleccionado,
+        'kilometraje': double.tryParse(_kilometrajeController.text.trim()),
+        'alias': _aliasController.text.trim().isEmpty ? null : _aliasController.text.trim(),
+        'usuario_id': user.id,
       });
 
       _patenteController.clear();
       _marcaController.clear();
+      _modeloController.clear();
+      _anioController.clear();
+      _kilometrajeController.clear();
+      _aliasController.clear();
       setState(() {
         _categoriaSeleccionada = 'AUTO';
+        _tipoCombustibleSeleccionado = null;
       });
       
       if (mounted) {
@@ -129,13 +157,28 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     }
   }
 
-  Future<bool> _editarVehiculo(String docId, String patente, String marca, String categoria) async {
+  Future<bool> _editarVehiculo(
+    String docId,
+    String patente,
+    String marca,
+    String categoria, {
+    String? modelo,
+    int? anio,
+    String? tipoCombustible,
+    double? kilometraje,
+    String? alias,
+  }) async {
     try {
-      await FirebaseFirestore.instance.collection('vehiculos').doc(docId).update({
+      await Supabase.instance.client.from('vehiculos').update({
         'patente': patente,
         'categoria': categoria,
         'marca': marca.isNotEmpty ? marca : 'No especificada',
-      });
+        'modelo': modelo,
+        'anio': anio,
+        'tipo_combustible': tipoCombustible,
+        'kilometraje': kilometraje,
+        'alias': alias,
+      }).eq('id', docId);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -158,33 +201,107 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     }
   }
 
-  void _mostrarInfoVehiculo(QueryDocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  void _mostrarInfoVehiculo(Map<String, dynamic> data) {
+    final alias = (data['alias'] as String?)?.trim();
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: navBgColor,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Text('Información del Vehículo', style: TextStyle(color: textMain)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Patente: ${data['patente']}', style: TextStyle(color: textMain, fontSize: 18)),
-              const SizedBox(height: 8),
-              Text('Tipo: ${data['categoria']}', style: TextStyle(color: textMuted, fontSize: 16)),
-              const SizedBox(height: 8),
-              Text('Marca: ${data['marca'] ?? 'No especificada'}', style: TextStyle(color: textMuted, fontSize: 16)),
-              const SizedBox(height: 8),
-              Text('Ingresado: ${data['fecha_ingreso'] ?? 'No registrada'}', style: TextStyle(color: textMuted, fontSize: 14)),
-            ],
+          title: Text(
+            alias != null && alias.isNotEmpty ? alias : 'Información del Vehículo',
+            style: TextStyle(color: textMain),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Patente: ${data['patente']}', style: TextStyle(color: textMain, fontSize: 18)),
+                const SizedBox(height: 8),
+                Text('Tipo: ${data['categoria']}', style: TextStyle(color: textMuted, fontSize: 16)),
+                const SizedBox(height: 8),
+                Text('Marca: ${data['marca'] ?? 'No especificada'}', style: TextStyle(color: textMuted, fontSize: 16)),
+                if (data['modelo'] != null && data['modelo'].toString().isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text('Modelo: ${data['modelo']}', style: TextStyle(color: textMuted, fontSize: 16)),
+                ],
+                if (data['anio'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text('Año: ${data['anio']}', style: TextStyle(color: textMuted, fontSize: 16)),
+                ],
+                if (data['tipo_combustible'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text('Combustible: ${data['tipo_combustible']}', style: TextStyle(color: textMuted, fontSize: 16)),
+                ],
+                if (data['kilometraje'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text('Kilometraje: ${(data['kilometraje'] as num).toStringAsFixed(0)} km', style: TextStyle(color: textMuted, fontSize: 16)),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  'Ingresado: ${data['fecha_ingreso'] != null ? _formatearFecha(data['fecha_ingreso']) : 'No registrada'}',
+                  style: TextStyle(color: textMuted, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: primaryColor,
+                      side: BorderSide(color: primaryColor),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => DocumentosVehiculoScreen(
+                            vehiculoId: data['id'],
+                            patente: data['patente'] ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.description_outlined),
+                    label: const Text('Ver Documentos y Vencimientos'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: accentColor,
+                      side: BorderSide(color: accentColor),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => CombustibleScreen(
+                            vehiculoId: data['id'],
+                            patente: data['patente'] ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.local_gas_station_outlined),
+                    label: const Text('Ver Combustible'),
+                  ),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
-                _mostrarFormularioEditarVehiculo(doc);
+                _mostrarFormularioEditarVehiculo(data);
               },
               child: const Text('Editar', style: TextStyle(color: Colors.blueAccent)),
             ),
@@ -198,11 +315,15 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     );
   }
 
-  void _mostrarFormularioEditarVehiculo(QueryDocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+  void _mostrarFormularioEditarVehiculo(Map<String, dynamic> data) {
     final TextEditingController patenteCtrl = TextEditingController(text: data['patente']);
     final TextEditingController marcaCtrl = TextEditingController(text: data['marca'] == 'No especificada' ? '' : data['marca']);
+    final TextEditingController modeloCtrl = TextEditingController(text: data['modelo']?.toString() ?? '');
+    final TextEditingController anioCtrl = TextEditingController(text: data['anio']?.toString() ?? '');
+    final TextEditingController kilometrajeCtrl = TextEditingController(text: data['kilometraje']?.toString() ?? '');
+    final TextEditingController aliasCtrl = TextEditingController(text: data['alias']?.toString() ?? '');
     String categoriaSel = data['categoria'] ?? 'AUTO';
+    String? tipoCombustibleSel = kTiposCombustible.contains(data['tipo_combustible']) ? data['tipo_combustible'] : null;
 
     showDialog(
       context: context,
@@ -233,7 +354,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                       decoration: InputDecoration(
                         labelText: 'Patente (ej: ABCD55)',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                     ),
@@ -245,19 +366,19 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                       decoration: InputDecoration(
                         labelText: 'Marca (ej: Toyota, Kia)',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: categoriaSel,
+                      initialValue: categoriaSel,
                       dropdownColor: navBgColor,
                       style: TextStyle(color: textMain),
                       decoration: InputDecoration(
                         labelText: 'Tipo de Vehículo',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                       items: const [
@@ -272,6 +393,75 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                           });
                         }
                       },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: modeloCtrl,
+                      style: TextStyle(color: textMain),
+                      decoration: InputDecoration(
+                        labelText: 'Modelo (ej: Corolla)',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: anioCtrl,
+                      style: TextStyle(color: textMain),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'Año',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: tipoCombustibleSel,
+                      dropdownColor: navBgColor,
+                      style: TextStyle(color: textMain),
+                      hint: Text('Selecciona', style: TextStyle(color: textMuted)),
+                      decoration: InputDecoration(
+                        labelText: 'Tipo de Combustible',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                      items: kTiposCombustible
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (value) {
+                        setModalState(() {
+                          tipoCombustibleSel = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: kilometrajeCtrl,
+                      style: TextStyle(color: textMain),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'Kilometraje actual',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: aliasCtrl,
+                      style: TextStyle(color: textMain),
+                      decoration: InputDecoration(
+                        labelText: 'Alias (ej: Auto de la Sara)',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
                     ),
                   ],
                 ),
@@ -300,7 +490,17 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                       );
                       return;
                     }
-                    bool success = await _editarVehiculo(doc.id, p, m, categoriaSel);
+                    bool success = await _editarVehiculo(
+                      data['id'],
+                      p,
+                      m,
+                      categoriaSel,
+                      modelo: modeloCtrl.text.trim().isEmpty ? null : modeloCtrl.text.trim(),
+                      anio: int.tryParse(anioCtrl.text.trim()),
+                      tipoCombustible: tipoCombustibleSel,
+                      kilometraje: double.tryParse(kilometrajeCtrl.text.trim()),
+                      alias: aliasCtrl.text.trim().isEmpty ? null : aliasCtrl.text.trim(),
+                    );
                     if (success && context.mounted) {
                       Navigator.pop(context);
                     }
@@ -384,7 +584,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                       decoration: InputDecoration(
                         labelText: 'Patente (ej: ABCD55)',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                     ),
@@ -396,19 +596,19 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                       decoration: InputDecoration(
                         labelText: 'Marca (ej: Toyota, Kia)',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: _categoriaSeleccionada,
+                      initialValue: _categoriaSeleccionada,
                       dropdownColor: navBgColor,
                       style: TextStyle(color: textMain),
                       decoration: InputDecoration(
                         labelText: 'Tipo de Vehículo',
                         labelStyle: TextStyle(color: textMuted),
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withOpacity(0.5))),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
                         focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
                       ),
                       items: const [
@@ -423,6 +623,75 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                           });
                         }
                       },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _modeloController,
+                      style: TextStyle(color: textMain),
+                      decoration: InputDecoration(
+                        labelText: 'Modelo (ej: Corolla)',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _anioController,
+                      style: TextStyle(color: textMain),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'Año',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _tipoCombustibleSeleccionado,
+                      dropdownColor: navBgColor,
+                      style: TextStyle(color: textMain),
+                      hint: Text('Selecciona', style: TextStyle(color: textMuted)),
+                      decoration: InputDecoration(
+                        labelText: 'Tipo de Combustible',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                      items: kTiposCombustible
+                          .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                          .toList(),
+                      onChanged: (value) {
+                        setModalState(() {
+                          _tipoCombustibleSeleccionado = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _kilometrajeController,
+                      style: TextStyle(color: textMain),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: InputDecoration(
+                        labelText: 'Kilometraje actual',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _aliasController,
+                      style: TextStyle(color: textMain),
+                      decoration: InputDecoration(
+                        labelText: 'Alias (opcional)',
+                        labelStyle: TextStyle(color: textMuted),
+                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: textMuted.withValues(alpha: 0.5))),
+                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: primaryColor)),
+                      ),
                     ),
                   ],
                 ),
@@ -455,12 +724,10 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Supabase.instance.client.auth.currentUser;
     if (user == null) {
       return const Scaffold(body: Center(child: Text("No autenticado")));
     }
-
-    final userRef = FirebaseFirestore.instance.collection('usuarios').doc(user.uid);
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -486,36 +753,19 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
             
             // --- LISTA DE VEHÍCULOS ---
             Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('vehiculos')
-                    .where('id_usuario', isEqualTo: userRef)
-                    .snapshots(),
+              child: StreamBuilder<List<Map<String, dynamic>>>(
+                stream: Supabase.instance.client
+                    .from('vehiculos')
+                    .stream(primaryKey: ['id'])
+                    .eq('usuario_id', user.id),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
-
-                  // Fallback en caso de que guardaran el id como string
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('vehiculos')
-                          .where('id_usuario', isEqualTo: '/usuarios/${user.uid}')
-                          .snapshots(),
-                      builder: (context, snapshotStr) {
-                        if (snapshotStr.connectionState == ConnectionState.waiting) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-                        if (!snapshotStr.hasData || snapshotStr.data!.docs.isEmpty) {
-                          return _buildEmptyState();
-                        }
-                        return _buildListaVehiculos(snapshotStr.data!.docs);
-                      }
-                    );
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return _buildEmptyState();
                   }
-
-                  return _buildListaVehiculos(snapshot.data!.docs);
+                  return _buildListaVehiculos(snapshot.data!);
                 },
               ),
             ),
@@ -525,12 +775,17 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     );
   }
 
+  String _formatearFecha(String isoDate) {
+    final date = DateTime.parse(isoDate);
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.directions_car_filled_outlined, size: 80, color: Colors.white.withOpacity(0.1)),
+          Icon(Icons.directions_car_filled_outlined, size: 80, color: Colors.white.withValues(alpha: 0.1)),
           const SizedBox(height: 16),
           Text(
             'Aún no hay vehículos',
@@ -546,10 +801,9 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
     );
   }
 
-  Widget _buildListaVehiculos(List<QueryDocumentSnapshot> docs) {
+  Widget _buildListaVehiculos(List<Map<String, dynamic>> docs) {
     // Extraemos las patentes para el selector
-    List<String> patentes = docs.map((d) {
-      final data = d.data() as Map<String, dynamic>;
+    List<String> patentes = docs.map((data) {
       return data['patente']?.toString() ?? 'Sin patente';
     }).toList();
 
@@ -564,7 +818,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 16),
               decoration: BoxDecoration(
-                color: primaryColor.withOpacity(0.2),
+                color: primaryColor.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: primaryColor),
               ),
@@ -594,7 +848,7 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
           child: ListView.builder(
             itemCount: docs.length,
             itemBuilder: (context, index) {
-              final data = docs[index].data() as Map<String, dynamic>;
+              final data = docs[index];
               final patente = data['patente'] ?? 'Desconocida';
               final categoria = data['categoria'] ?? 'Auto';
 
@@ -611,16 +865,56 @@ class _VehiculosScreenState extends State<VehiculosScreen> {
                     ),
                     child: Icon(Icons.directions_car, color: primaryColor),
                   ),
-                  title: Text(patente, style: TextStyle(color: textMain, fontWeight: FontWeight.bold)),
+                  title: Text(
+                    (data['alias'] as String?)?.trim().isNotEmpty == true ? data['alias'] : patente,
+                    style: TextStyle(color: textMain, fontWeight: FontWeight.bold),
+                  ),
                   subtitle: Text('${data['marca'] ?? 'Sin marca'} • $categoria', style: TextStyle(color: textMuted)),
-                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-                  onTap: () => _mostrarInfoVehiculo(docs[index]),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildEstadoDocumentosDot(data['id']),
+                      const SizedBox(width: 8),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
+                    ],
+                  ),
+                  onTap: () => _mostrarInfoVehiculo(data),
                 ),
               );
             },
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildEstadoDocumentosDot(String vehiculoId) {
+    return StreamBuilder<List<DocumentoVehiculoModel>>(
+      stream: _documentosService.streamDocumentos(vehiculoId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const SizedBox(width: 10, height: 10);
+        final estado = peorEstado(snapshot.data!.map((d) => d.estado).toList());
+        Color color;
+        switch (estado) {
+          case EstadoVencimiento.alDia:
+            color = const Color(0xFF10B981);
+            break;
+          case EstadoVencimiento.atencion:
+            color = const Color(0xFFF59E0B);
+            break;
+          case EstadoVencimiento.vencido:
+            color = const Color(0xFFEF4444);
+            break;
+          case EstadoVencimiento.sinDatos:
+            color = Colors.grey;
+            break;
+        }
+        return Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        );
+      },
     );
   }
 }
