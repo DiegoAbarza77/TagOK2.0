@@ -15,7 +15,9 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+// gemini-2.5-flash dejó de estar disponible para API keys nuevas (Google
+// pide migrar a gemini-3.6-flash); confirmado probando la key real.
+const GEMINI_MODEL = "gemini-3.6-flash";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -73,7 +75,13 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: body.prompt }] }],
-        generationConfig: { responseMimeType: "application/json" },
+        generationConfig: {
+          responseMimeType: "application/json",
+          // gemini-3.6-flash activa "thinking" por defecto, lo que hace
+          // la respuesta tardar 40+ segundos para esta tarea de extracción
+          // estructurada -- no lo necesitamos, así que lo desactivamos.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     },
   );
