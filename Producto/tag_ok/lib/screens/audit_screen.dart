@@ -13,8 +13,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/models/trip_history.dart';
 import '../data/services/history_service.dart';
 import '../data/demo_data.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:tag_ok/utils/file_saver.dart';
 
 class AuditScreen extends StatefulWidget {
@@ -502,18 +500,19 @@ class _AuditScreenState extends State<AuditScreen> {
     }
   }
 
-  Future<Map<String, dynamic>> _extractDataWithGemini(String rawText, String fileName) async {
-    final geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
-    if (geminiApiKey.isEmpty) {
-      throw Exception('Clave de API de Gemini no configurada.');
-    }
-
-    final model = GenerativeModel(
-      model: 'gemini-2.5-flash',
-      apiKey: geminiApiKey,
-      generationConfig: GenerationConfig(responseMimeType: 'application/json'),
+  /// Llama a la Edge Function "gemini-proxy": Gemini corre del lado del
+  /// servidor, así GEMINI_API_KEY nunca viaja al navegador ni queda
+  /// expuesta en el build web.
+  Future<String> _callGeminiProxy(String prompt) async {
+    final response = await Supabase.instance.client.functions.invoke(
+      'gemini-proxy',
+      body: {'prompt': prompt},
     );
+    final data = response.data as Map;
+    return (data['text'] as String?)?.trim() ?? '';
+  }
 
+  Future<Map<String, dynamic>> _extractDataWithGemini(String rawText, String fileName) async {
     final limitedText = rawText.length > 60000 ? rawText.substring(0, 60000) : rawText;
 
     final prompt = '''
@@ -547,9 +546,8 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
 }
 ''';
 
-    final response = await model.generateContent([Content.text(prompt)]);
-    final responseText = response.text?.trim() ?? '';
-    
+    final responseText = await _callGeminiProxy(prompt);
+
     try {
       final parsed = jsonDecode(responseText);
       if (parsed['crossings'] == null || (parsed['crossings'] as List).isEmpty) {
@@ -655,11 +653,6 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
     } else {
       // 3. INVOCACIÓN HÍBRIDA OPTIMIZADA (SOLO DISCREPANCIAS Y PROMPT CORTO)
       try {
-        final geminiApiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
-        if (geminiApiKey.isEmpty) {
-          throw Exception('Clave de API de Gemini no configurada.');
-        }
-
         // Filtrar viajes GPS para enviar únicamente los días con discrepancias
         final Set<String> discrepancyDates = discrepancies.map((d) => d['date'] as String).toSet();
         final tripsOnDiscrepancyDays = trips
@@ -677,12 +670,6 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
               }).toList(),
             })
             .toList();
-
-        final model = GenerativeModel(
-          model: 'gemini-2.5-flash',
-          apiKey: geminiApiKey,
-          generationConfig: GenerationConfig(responseMimeType: 'application/json'),
-        );
 
         final prompt = '''
 Eres un auditor experto de peajes de autopistas de Santiago de Chile. Tu objetivo es redactar un análisis breve y conciso de auditoría en español ("aiReport") explicando los cobros no conciliados con el GPS del vehículo.
@@ -712,9 +699,7 @@ Instrucciones para redactar el "aiReport":
 }
 ''';
 
-        final content = [Content.text(prompt)];
-        final response = await model.generateContent(content);
-        final responseText = response.text?.trim() ?? '';
+        final responseText = await _callGeminiProxy(prompt);
 
         final Map<String, dynamic> aiResult = jsonDecode(responseText);
         aiReport = aiResult['aiReport'] ?? 'Sin comentarios adicionales.';

@@ -1,5 +1,5 @@
 {
-  "buildCommand": "git clone https://github.com/flutter/flutter.git -b stable --depth 1 flutter_sdk && export PATH=\"$PATH:$(pwd)/flutter_sdk/bin\" && flutter config --enable-web --no-analytics && printf 'SUPABASE_URL=%s\\nSUPABASE_ANON_KEY=%s\\nMAPBOX_ACCESS_TOKEN=%s\\nGEMINI_API_KEY=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" \"$MAPBOX_ACCESS_TOKEN\" \"$GEMINI_API_KEY\" > .env && flutter pub get && flutter build web --release",
+  "buildCommand": "git clone https://github.com/flutter/flutter.git -b stable --depth 1 flutter_sdk && export PATH=\"$PATH:$(pwd)/flutter_sdk/bin\" && flutter config --enable-web --no-analytics && printf 'SUPABASE_URL=%s\\nSUPABASE_ANON_KEY=%s\\nMAPBOX_ACCESS_TOKEN=%s\\n' \"$SUPABASE_URL\" \"$SUPABASE_ANON_KEY\" \"$MAPBOX_ACCESS_TOKEN\" > .env && flutter pub get && flutter build web --release",
   "outputDirectory": "build/web",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
