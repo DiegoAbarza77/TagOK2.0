@@ -123,6 +123,20 @@ La Fase 2 representa la evolución principal de TAG OK.
 
 El objetivo es centralizar los diferentes gastos, documentos y actividades relacionadas con el vehículo, reduciendo la cantidad de información que el usuario debe ingresar manualmente.
 
+### Estado de avance por módulo
+
+| Módulo | Estado |
+| :----- | :----- |
+| 🚗 Mi Vehículo (datos + documentos + vencimientos) | ✅ Implementado |
+| ⛽ Combustible (registro manual) | ✅ Implementado |
+| 🤖 Revisión y confirmación de IA (auditoría de boletas) | ✅ Implementado |
+| 🔐 Backend, autenticación y seguridad (Supabase + RLS) | ✅ Implementado |
+| 🛠️ Mantenciones | ⏳ Base de datos lista, interfaz pendiente |
+| 🅿️ Estacionamientos y cronómetro | ⏳ Base de datos lista, interfaz pendiente |
+| 🎁 Beneficios (app + backoffice) | ⏳ Base de datos lista, interfaz pendiente |
+| 🤖 IA para combustible, mantenciones y estacionamientos | ⏳ Pendiente |
+| 📊 Dashboard "Mi Auto" integrador | ⏳ Pendiente (depende de los módulos anteriores) |
+
 ### 🚗 Mi Vehículo
 
 El módulo **Mi Vehículo** permite consultar y administrar la información principal del vehículo.
@@ -456,8 +470,8 @@ Antes de ejecutar el proyecto se recomienda contar con:
 * Dart.
 * Android Studio.
 * Git.
-* Cuenta/proyecto configurado en Firebase.
-* Credenciales de los servicios externos utilizados por el proyecto.
+* Cuenta/proyecto configurado en Supabase (Auth + base de datos + Edge Functions).
+* Credenciales de los servicios externos utilizados por el proyecto (Supabase, Mapbox, Gemini).
 
 ### Clonar el repositorio
 
@@ -509,18 +523,20 @@ flutter run
 
 ## 🛠️ Stack Tecnológico
 
-| Componente                    | Tecnología               |
-| :---------------------------- | :----------------------- |
-| **Framework**                 | Flutter                  |
-| **Lenguaje**                  | Dart                     |
-| **Base de Datos**             | Firebase Cloud Firestore |
-| **Autenticación**             | Firebase Authentication  |
-| **Mapas**                     | Flutter Map + Mapbox     |
-| **Inteligencia Artificial**   | Google Gemini            |
-| **Procesamiento de archivos** | File Picker              |
-| **Procesamiento PDF**         | Syncfusion PDF           |
-| **Archivos CSV**              | CSV                      |
-| **Control de versiones**      | Git + GitHub             |
+| Componente                    | Tecnología                        |
+| :---------------------------- | :--------------------------------- |
+| **Framework**                 | Flutter                            |
+| **Lenguaje**                  | Dart                                |
+| **Base de Datos**             | Supabase (Postgres + Row Level Security) |
+| **Autenticación**             | Supabase Auth                      |
+| **Funciones de servidor**     | Supabase Edge Functions (Deno)     |
+| **Mapas**                     | Flutter Map + Mapbox               |
+| **Inteligencia Artificial**   | Google Gemini                      |
+| **Procesamiento de archivos** | File Picker                        |
+| **Procesamiento PDF**         | Syncfusion PDF                     |
+| **Archivos CSV**              | CSV                                 |
+| **Despliegue web**            | Vercel                             |
+| **Control de versiones**      | Git + GitHub                       |
 
 ---
 
