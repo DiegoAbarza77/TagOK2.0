@@ -28,7 +28,7 @@ class _AuditScreenState extends State<AuditScreen> {
   // Subpestaña activa (0: Consumo e Historial, 1: Auditoría de Boletas)
   int _activeSubTab = 0;
   bool _isExtracting = false;
-  final bool _useAI = true;
+  bool _useAI = true;
 
   // Variables de Filtro (Subpestaña 1)
   String _selectedVehicle = 'Todos';
@@ -1983,6 +1983,26 @@ Instrucciones para redactar el "aiReport":
         return ListView(
           padding: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
           children: [
+            // Interruptor: Auditar con IA vs. solo motor local (PDF/CSV/XLSX
+            // oficiales de Autopista Central, Costanera Norte, Vespucio Sur/Norte)
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _useAI
+                        ? 'Auditar con IA (recomendado)'
+                        : 'Solo motor local (sin IA)',
+                    style: TextStyle(color: textMuted, fontSize: 12),
+                  ),
+                ),
+                Switch(
+                  value: _useAI,
+                  activeThumbColor: const Color(0xFF8B5CF6),
+                  onChanged: (val) => setState(() => _useAI = val),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             // Tarjeta de Carga de Archivos
             _buildUploadCard(),
             const SizedBox(height: 24),

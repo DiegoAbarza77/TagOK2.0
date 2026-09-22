@@ -9,15 +9,26 @@ echo.
 rem Ir al directorio donde se encuentra este script
 cd /d "%~dp0"
 
-echo [1/3] Creando archivos .env vacios (requerido por Flutter)...
+echo [1/3] Verificando archivos .env (requeridos, ya no se generan automaticamente)...
 echo.
 if not exist "tag_ok\.env" (
-    echo. > "tag_ok\.env"
-    echo - Creado tag_ok\.env vacio
+    (
+        echo # Completa estos valores antes de ejecutar la app -- sin ellos no arranca.
+        echo # SUPABASE_URL y SUPABASE_ANON_KEY: Supabase Dashboard -^> Project Settings -^> API
+        echo SUPABASE_URL=
+        echo SUPABASE_ANON_KEY=
+        echo MAPBOX_ACCESS_TOKEN=
+    ) > "tag_ok\.env"
+    echo - Creado tag_ok\.env con plantilla vacia -- debes completarlo a mano
 )
 if not exist "admin\.env" (
-    echo. > "admin\.env"
-    echo - Creado admin\.env vacio
+    (
+        echo # Completa estos valores antes de ejecutar la app -- sin ellos no arranca.
+        echo # SUPABASE_URL y SUPABASE_ANON_KEY: Supabase Dashboard -^> Project Settings -^> API
+        echo SUPABASE_URL=
+        echo SUPABASE_ANON_KEY=
+    ) > "admin\.env"
+    echo - Creado admin\.env con plantilla vacia -- debes completarlo a mano
 )
 echo.
 
@@ -36,8 +47,10 @@ echo.
 echo =======================================================
 echo    Instalacion y configuracion completadas con exito
 echo =======================================================
-echo (Nota: Las claves de Firebase y Gemini se cargan en 
-echo  memoria automaticamente. No necesitas archivos .env)
+echo IMPORTANTE: este proyecto usa Supabase (ya no Firebase).
+echo Antes de ejecutar la app, completa tag_ok\.env y admin\.env
+echo con tu SUPABASE_URL y SUPABASE_ANON_KEY (y MAPBOX_ACCESS_TOKEN
+echo en tag_ok\.env). Sin esos valores la app no va a arrancar.
 echo.
 
 :menu
@@ -63,24 +76,56 @@ echo.
 goto menu
 
 :opt1
+findstr /R "^SUPABASE_URL=." "%~dp0tag_ok\.env" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: tag_ok\.env no tiene SUPABASE_URL configurado.
+    echo Completa tag_ok\.env con tus credenciales de Supabase antes de continuar.
+    echo.
+    goto menu
+)
 echo Ejecutando App Principal (tag_ok) en Windows...
 cd /d "%~dp0tag_ok"
 call flutter run -d windows
 goto menu
 
 :opt2
+findstr /R "^SUPABASE_URL=." "%~dp0tag_ok\.env" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: tag_ok\.env no tiene SUPABASE_URL configurado.
+    echo Completa tag_ok\.env con tus credenciales de Supabase antes de continuar.
+    echo.
+    goto menu
+)
 echo Ejecutando App Principal (tag_ok) en Chrome...
 cd /d "%~dp0tag_ok"
 call flutter run -d chrome
 goto menu
 
 :opt3
+findstr /R "^SUPABASE_URL=." "%~dp0admin\.env" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: admin\.env no tiene SUPABASE_URL configurado.
+    echo Completa admin\.env con tus credenciales de Supabase antes de continuar.
+    echo.
+    goto menu
+)
 echo Ejecutando Panel Administrador (admin) en Windows...
 cd /d "%~dp0admin"
 call flutter run -d windows
 goto menu
 
 :opt4
+findstr /R "^SUPABASE_URL=." "%~dp0admin\.env" >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: admin\.env no tiene SUPABASE_URL configurado.
+    echo Completa admin\.env con tus credenciales de Supabase antes de continuar.
+    echo.
+    goto menu
+)
 echo Ejecutando Panel Administrador (admin) en Chrome...
 cd /d "%~dp0admin"
 call flutter run -d chrome
