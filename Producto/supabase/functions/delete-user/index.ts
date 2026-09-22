@@ -27,9 +27,16 @@ Deno.serve(async (req) => {
     return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey || !anonKey) {
+    return new Response("Faltan variables de entorno en el servidor", {
+      status: 500,
+      headers: corsHeaders,
+    });
+  }
 
   const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey);
   const supabaseCaller = createClient(supabaseUrl, anonKey, {
@@ -63,6 +70,16 @@ Deno.serve(async (req) => {
 
   if (!body.userId) {
     return new Response("userId es requerido", { status: 400, headers: corsHeaders });
+  }
+
+  if (body.userId === callerData.user.id) {
+    // Evita que el único super_admin se borre a sí mismo y deje el sistema
+    // sin nadie que pueda pasar el chequeo "requiere rol super_admin" de
+    // esta misma función y de create-admin (bloqueo permanente).
+    return new Response("No puedes eliminar tu propia cuenta desde aquí", {
+      status: 400,
+      headers: corsHeaders,
+    });
   }
 
   // Borra la fila de public.usuarios explicitamente (por si el cascade de

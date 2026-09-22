@@ -508,8 +508,15 @@ class _AuditScreenState extends State<AuditScreen> {
       'gemini-proxy',
       body: {'prompt': prompt},
     );
+    if (response.data is! Map) {
+      throw Exception('Respuesta inesperada del servicio de IA.');
+    }
     final data = response.data as Map;
-    return (data['text'] as String?)?.trim() ?? '';
+    final text = (data['text'] as String?)?.trim() ?? '';
+    if (text.isEmpty) {
+      throw Exception('El servicio de IA no devolvió contenido.');
+    }
+    return text;
   }
 
   Future<Map<String, dynamic>> _extractDataWithGemini(String rawText, String fileName) async {
@@ -588,7 +595,7 @@ Debes devolver EXCLUSIVAMENTE un objeto JSON válido con esta estructura estrict
       final String cDateStr = crossing['date']; 
       final String cTimeStr = crossing['time']; 
       final String cPortico = crossing['portico']; 
-      final double cCost = crossing['cost'];
+      final double cCost = (crossing['cost'] as num).toDouble();
 
       totalBilled += cCost;
 
@@ -1082,7 +1089,7 @@ Instrucciones para redactar el "aiReport":
           final String cDateStr = crossing['date']; 
           final String cTimeStr = crossing['time']; 
           final String cPortico = crossing['portico']; 
-          final double cCost = crossing['cost'];
+          final double cCost = (crossing['cost'] as num).toDouble();
 
           totalBilled += cCost;
 
@@ -1192,6 +1199,7 @@ Instrucciones para redactar el "aiReport":
     final patentCtrl = TextEditingController(text: resultado['patent'] ?? '');
     final periodCtrl = TextEditingController(text: resultado['period'] ?? '');
     final aiReportCtrl = TextEditingController(text: resultado['ai_report'] ?? '');
+    final bool hayInformeIA = resultado['ai_report'] != null;
 
     final double totalBilled = (resultado['total_billed'] as num).toDouble();
     final double totalMatched = (resultado['total_matched'] as num).toDouble();
@@ -1335,7 +1343,10 @@ Instrucciones para redactar el "aiReport":
                               'concessionaire': concessionaireCtrl.text.trim(),
                               'patent': patentCtrl.text.trim(),
                               'period': periodCtrl.text.trim(),
-                              if (aiReportCtrl.text.isNotEmpty) 'ai_report': aiReportCtrl.text.trim(),
+                              // Si el informe de IA existía, se guarda el texto actual del
+                              // campo (incluso si el usuario lo dejó vacío a propósito) en
+                              // vez de conservar el valor original cuando el usuario lo borró.
+                              if (hayInformeIA) 'ai_report': aiReportCtrl.text.trim(),
                             };
                             await Supabase.instance.client.from('audited_invoices').insert(registro);
 

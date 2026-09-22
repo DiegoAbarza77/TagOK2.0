@@ -31,12 +31,15 @@ Deno.serve(async (req) => {
     return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
-  if (!geminiApiKey) {
-    return new Response("GEMINI_API_KEY no configurada en el servidor", {
+  if (!supabaseUrl || !anonKey || !geminiApiKey) {
+    // Devolver un error con headers CORS en vez de dejar que Deno.env.get(...)!
+    // lance una excepción no capturada (esa respuesta de error no lleva
+    // corsHeaders y el navegador vuelve a ver un "Failed to fetch" genérico).
+    return new Response("Faltan variables de entorno en el servidor", {
       status: 500,
       headers: corsHeaders,
     });
@@ -82,6 +85,18 @@ Deno.serve(async (req) => {
 
   const geminiResult = await geminiResponse.json();
   const text = geminiResult?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+
+  if (!text) {
+    // Gemini respondió 200 pero sin contenido (p. ej. bloqueado por el
+    // filtro de seguridad) -- devolver un error explícito en vez de un
+    // 200 con texto vacío, que el cliente intentaría parsear como JSON
+    // y fallaría con un mensaje confuso de "Unexpected end of input".
+    const blockReason = geminiResult?.promptFeedback?.blockReason ?? "sin contenido";
+    return new Response(`Gemini no devolvió una respuesta utilizable (${blockReason})`, {
+      status: 502,
+      headers: corsHeaders,
+    });
+  }
 
   return new Response(JSON.stringify({ text }), {
     status: 200,
