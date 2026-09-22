@@ -7,16 +7,28 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+// Sin esto, el navegador bloquea la llamada en el preflight (OPTIONS) antes
+// de que siquiera llegue a la función -- Deno.serve no las agrega por defecto.
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 const GEMINI_MODEL = "gemini-2.5-flash";
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response("Unauthorized", { status: 401 });
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -24,7 +36,10 @@ Deno.serve(async (req) => {
   const geminiApiKey = Deno.env.get("GEMINI_API_KEY");
 
   if (!geminiApiKey) {
-    return new Response("GEMINI_API_KEY no configurada en el servidor", { status: 500 });
+    return new Response("GEMINI_API_KEY no configurada en el servidor", {
+      status: 500,
+      headers: corsHeaders,
+    });
   }
 
   // Cualquier usuario autenticado de la app puede usar su propia auditoría
@@ -34,18 +49,18 @@ Deno.serve(async (req) => {
   });
   const { data: callerData, error: callerErr } = await supabaseCaller.auth.getUser();
   if (callerErr || !callerData.user) {
-    return new Response("Unauthorized", { status: 401 });
+    return new Response("Unauthorized", { status: 401, headers: corsHeaders });
   }
 
   let body: { prompt?: string };
   try {
     body = await req.json();
   } catch {
-    return new Response("Body invalido", { status: 400 });
+    return new Response("Body invalido", { status: 400, headers: corsHeaders });
   }
 
   if (!body.prompt) {
-    return new Response("prompt es requerido", { status: 400 });
+    return new Response("prompt es requerido", { status: 400, headers: corsHeaders });
   }
 
   const geminiResponse = await fetch(
@@ -62,7 +77,7 @@ Deno.serve(async (req) => {
 
   if (!geminiResponse.ok) {
     const errorText = await geminiResponse.text();
-    return new Response(`Error de Gemini: ${errorText}`, { status: 502 });
+    return new Response(`Error de Gemini: ${errorText}`, { status: 502, headers: corsHeaders });
   }
 
   const geminiResult = await geminiResponse.json();
@@ -70,6 +85,6 @@ Deno.serve(async (req) => {
 
   return new Response(JSON.stringify({ text }), {
     status: 200,
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
