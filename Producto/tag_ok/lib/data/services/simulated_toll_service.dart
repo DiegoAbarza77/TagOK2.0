@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:latlong2/latlong.dart';
 import '../models/route_model.dart';
-import '../mock/tolls_database.dart';
+import '../repositories/porticos_repository.dart';
 import '../../utils/polyline_decoder.dart';
 
 class SimulatedTollService {
@@ -49,7 +49,8 @@ class SimulatedTollService {
     final distanceKm = distanceMeters / 1000.0;
 
     // 3. Simular pórticos interceptados con Paso A, B y C
-    final tolls = _calculateTollsForRoute(polylinePoints, distanceMeters, durationSeconds);
+    final knownTolls = await PorticosRepository.instance.getPorticos();
+    final tolls = _calculateTollsForRoute(polylinePoints, distanceMeters, durationSeconds, knownTolls);
 
     // 4. Sentido genérico aproximado
     String direction = "Desconocido";
@@ -83,7 +84,7 @@ class SimulatedTollService {
     );
   }
 
-  List<TollData> _calculateTollsForRoute(List<LatLng> routePoints, num totalDistanceMeters, num durationSeconds) {
+  List<TollData> _calculateTollsForRoute(List<LatLng> routePoints, num totalDistanceMeters, num durationSeconds, List<TollData> knownTolls) {
     if (routePoints.isEmpty) return [];
 
     // Precalcular distancias acumuladas de la polilínea
@@ -95,7 +96,6 @@ class SimulatedTollService {
 
     final List<_CandidateToll> candidateTolls = [];
     final double thresholdMeters = 150.0;
-    final knownTolls = TollsDatabase.santiagoTolls;
 
     for (var knownToll in knownTolls) {
       LatLng? bestSnappedPoint;
