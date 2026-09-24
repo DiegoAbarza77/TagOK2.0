@@ -1,5 +1,7 @@
 # Informe de Arquitectura de Datos - TAG OK
 
+> ⚠️ **Documento histórico (v1, Firebase).** Desde la 2.0 el backend usa **Supabase (Postgres + RLS)**. El esquema vigente está en `Producto/supabase/migrations/` (0001 a 0007); este informe se conserva solo como referencia de la versión anterior.
+
 Este documento detalla la estructura exacta de la base de datos implementada en Google Firebase (Cloud Firestore) para el proyecto Tag OK, verificada según la consola de administración.
 
 ## 1. Modelo de Colecciones

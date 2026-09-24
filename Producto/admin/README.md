@@ -1,30 +1,43 @@
 # TAG OK Admin
 
-Panel web de administración para el ecosistema TAG OK.
+Panel web de administración para el ecosistema TAG OK. Usa el mismo proyecto de **Supabase** que la app de los usuarios (`../tag_ok`), así que los cambios se reflejan en tiempo real en la app (Supabase Realtime).
 
-## Qué incluye
+## Secciones
 
-- Dashboard inicial con KPIs del sistema.
-- Listado de usuarios desde Firestore.
-- Catálogo de pórticos compartido con la app principal.
-- Vista base para tarifas y reportes.
+| Sección | Qué hace | `super_admin` | `operador` |
+| :------ | :------- | :-----------: | :--------: |
+| Dashboard | KPIs, viajes recientes, costos por autopista | ✅ | ✅ |
+| Usuarios | Consulta, edición de presupuesto/nombre, reseteo de contraseña, eliminación | ✅ | — |
+| Pórticos | Alta, baja y modificación de tarifa base/punta/saturación por pórtico | ✅ | ✅ |
+| Tarifas | Tarifas y viajes de usuarios | ✅ | ✅ |
+| Reportes | Métricas agregadas y costos por concesionaria | ✅ | ✅ |
+| Auditoría | Bitácora inmutable de cada acción administrativa | ✅ | — |
+| Admins | Gestión de roles; crear/eliminar administradores | ✅ | — |
 
-## Base de datos compartida
+> ⏳ Pendiente (Fase 2): backoffice de **Beneficios** (crear, editar y activar/desactivar). La tabla `beneficios` y sus políticas RLS ya existen.
 
-Este proyecto apunta al mismo Firebase project que la app final. Las colecciones iniciales usadas por el admin son:
+## Datos y seguridad
 
-- `usuarios`
-- `vehiculos`
-- `porticos`
-- `tarifas`
-- `alertas`
+Tablas que usa el panel: `usuarios`, `vehiculos`, `trips`, `porticos`, `tarifas`, `auditoria`, `administradores`.
+
+- El acceso está controlado por **Row Level Security** en Postgres (`../supabase/migrations/`), no solo en el cliente.
+- Crear y eliminar administradores/usuarios pasa por las Edge Functions `create-admin` y `delete-user`, que verifican el rol de quien llama en el servidor. La *service-role key* nunca llega al navegador.
+
+## Configuración
+
+Crea `admin/.env` (no se versiona) con:
+
+```env
+SUPABASE_URL=https://tu-proyecto.supabase.co
+SUPABASE_ANON_KEY=tu-anon-key
+```
+
+Sin estos valores el panel no arranca. `../setup.bat` genera la plantilla vacía si no existe.
 
 ## Arranque local
 
-1. Ubícate en la carpeta `Producto/admin`.
-2. Ejecuta `flutter pub get`.
-3. Ejecuta `flutter run -d chrome` para abrir la versión web.
-
-## Nota
-
-El archivo `.env` contiene la configuración del proyecto Firebase usada para desarrollo local.
+```bash
+cd Producto/admin
+flutter pub get
+flutter run -d chrome
+```
