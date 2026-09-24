@@ -118,11 +118,14 @@ void testVespucioNorte(String filepath) {
 }
 
 void main() {
+  // Las boletas reales no se versionan (ver .gitignore); este test solo corre
+  // en máquinas que tengan la carpeta pdf_privados/ localmente.
+  final basePath = 'pdf_privados';
+  final hasPdfs = Directory(basePath).existsSync();
+
   test('Diagnóstico de PDF y Expresiones Regulares Mejoradas', () {
-    final basePath = 'pdf_privados';
-    
     testCostaneraOrVespucioSur('$basePath/COSTANERA_NORTE.pdf', 'Costanera Norte');
     testCostaneraOrVespucioSur('$basePath/VESPUCIO_SUR.pdf', 'Vespucio Sur');
     testVespucioNorte('$basePath/VESPUCIO_NORTE_1.pdf');
-  });
+  }, skip: hasPdfs ? false : 'Falta la carpeta local pdf_privados/');
 }

@@ -50,3 +50,6 @@ app.*.map.json
 
 # Environment Variables
 .env
+
+# Boletas reales para probar la auditoría: solo locales, nunca en git
+pdf_privados/
